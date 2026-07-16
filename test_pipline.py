@@ -5,10 +5,11 @@ test_pipline.py — DINO 三模态改造端到端管线验证
     # 三模态全融合 (默认)
     python test_pipline.py
 
+    # 指定数据路径
+    python test_pipline.py --data_root /path/to/dataset
+
     # 消融实验
     python test_pipline.py --fusion_modality rgb_only
-    python test_pipline.py --fusion_modality rgb_ir
-    python test_pipline.py --fusion_modality rgb_depth
 
 验证项:
   1. 配置文件加载 + 模型构建 (含 IR/Depth 编码器 + Scene Fusion)
@@ -20,6 +21,7 @@ test_pipline.py — DINO 三模态改造端到端管线验证
 """
 
 import sys
+import os
 import argparse
 
 import torch
@@ -40,19 +42,50 @@ def get_args():
                         help='冻结 RGB Backbone')
     parser.add_argument('--freeze_enc_layers', type=int, default=4,
                         help='冻结 Encoder 前 N 层 (默认 4)')
+    parser.add_argument('--data_root', type=str, default='',
+                        help='三模态数据集根目录 (若不指定则在常见的候选路径中查找)')
     return parser.parse_args()
+
+
+def find_data_root():
+    """在常见候选路径中查找可用的三模态数据集目录。"""
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(_script_dir, '..', 'dataset', 'itemdetect'),
+        os.path.join(_script_dir, 'data', 'itemdetect'),
+        os.path.join(_script_dir, '..', 'itemdetect'),
+        r"D:\files\dataset\itemdetect",          # 本地开发路径
+        r"D:\dataset\itemdetect",
+        "/home/zcoop8/zhangxianping/data/itemdetect",  # 服务器路径
+        "/mnt/data/itemdetect",
+    ]
+    for p in candidates:
+        p = os.path.abspath(p)
+        if os.path.isdir(p):
+            # 检查是否包含 visible/infrared/depth/labels 子目录
+            subdirs = ['visible', 'infrared', 'depth', 'labels']
+            if all(os.path.isdir(os.path.join(p, sd)) for sd in subdirs):
+                return p
+    return ''
 
 
 def main():
     cli_args = get_args()
     fusion_modality = cli_args.fusion_modality
+    data_root = cli_args.data_root or find_data_root()
+
+    if not data_root or not os.path.isdir(data_root):
+        print(f"❌ 数据集目录未找到。请通过 --data_root 参数指定路径。")
+        sys.exit(1)
 
     # ---- 1. 加载配置 ----
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(_script_dir, 'config', 'DINO', 'DINO_4scale_multimodal.py')
+
     print("=" * 60)
     print(f"  DINO 三模态改造 — 管线验证 (fusion_modality={fusion_modality})")
     print("=" * 60)
 
-    config_path = r'D:\files\MODEL\transformer-detection\DINO-main\config\DINO\DINO_4scale_multimodal.py'
     print(f"\n[1] 加载配置: {config_path}")
     args = SLConfig.fromfile(config_path)
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -67,8 +100,7 @@ def main():
 
     print(f"     device={args.device}, num_classes={args.num_classes}")
     print(f"     fusion_modality={args.fusion_modality}")
-    print(f"     freeze_backbone={args.freeze_backbone}, "
-          f"freeze_enc_layers={args.freeze_enc_layers}")
+    print(f"     data_root={data_root}")
 
     # ---- 2. 构建模型 ----
     print("\n[2] 构建模型...")
@@ -87,7 +119,6 @@ def main():
 
     # ---- 3. 构建 DataLoader ----
     print("\n[3] 构建 DataLoader...")
-    data_root = r"D:\files\dataset\itemdetect"
     dataset = Multimodeldataset(data_root, num_classes=12)
     loader = DataLoader(dataset, batch_size=1, shuffle=False,
                         collate_fn=collate_fn_multimodal)
@@ -105,9 +136,7 @@ def main():
     print(f"     samples['ir']:    {samples['ir'].shape}")
     print(f"     samples['depth']: {samples['depth'].shape}")
     print(f"     targets[0] boxes: {targets[0]['boxes'].shape}, "
-          f"labels: {targets[0]['labels'].tolist()}, "
-          f"light={targets[0]['light_label']}, "
-          f"density={targets[0]['density_label']}")
+          f"labels: {targets[0]['labels'].tolist()}")
 
     # ---- 5. 前向传播 ----
     print("\n[5] 前向传播...")
@@ -126,9 +155,6 @@ def main():
         print(f"     scene_outputs.light_logits:    {so['light_logits'].softmax(-1).tolist()}")
         print(f"     scene_outputs.density_logits:  {so['density_logits'].softmax(-1).tolist()}")
         print(f"     scene_outputs.modality_weights: {so['modality_weights'].tolist()}")
-        print(f"     → w_rgb={so['modality_weights'][0,0]:.3f}, "
-              f"w_ir={so['modality_weights'][0,1]:.3f}, "
-              f"w_depth={so['modality_weights'][0,2]:.3f}")
     else:
         print(f"     ⚠️  scene_outputs 为空 (fusion_modality={fusion_modality})")
 
@@ -137,7 +163,6 @@ def main():
     loss_dict = criterion(outputs, targets)
     weight_dict = criterion.weight_dict
 
-    # 只打印主要损失项
     print(f"     {'Loss':30s} {'Value':>10s} {'Weight':>6s} {'Scaled':>10s}")
     print(f"     {'─'*30} {'─'*10} {'─'*6} {'─'*10}")
 
@@ -166,10 +191,11 @@ def main():
                    for n, p in model.named_parameters()
                    if p.grad is not None and p.requires_grad}
     print(f"     有梯度的参数: {len(grad_params)}")
-    top5 = sorted(grad_params.items(), key=lambda x: x[1], reverse=True)[:5]
-    print(f"     梯度范数 top5:")
-    for name, gn in top5:
-        print(f"       {name:55s}: {gn:.4f}")
+    if grad_params:
+        top5 = sorted(grad_params.items(), key=lambda x: x[1], reverse=True)[:5]
+        print(f"     梯度范数 top5:")
+        for name, gn in top5:
+            print(f"       {name:55s}: {gn:.4f}")
 
     optimizer.step()
     print(f"     参数已更新")
@@ -180,30 +206,6 @@ def main():
     print(f"  融合模式: {fusion_modality}")
     print(f"  参数量: {n_params:,} (可训练 {n_trainable:,})")
     print(f"{'='*60}")
-
-    # ---- 8. 消融验证 ----
-    if fusion_modality == 'rgb_only':
-        print(f"\n[消融验证] RGB-only 模式检查:")
-        assert outputs.get('scene_outputs') is None, \
-            "rgb_only 模式不应产生 scene_outputs"
-        print(f"  ✅ scene_outputs 正确禁用")
-        print(f"  ✅ 纯 RGB DINO 前向正常")
-
-    if fusion_modality == 'rgb_ir':
-        print(f"\n[消融验证] RGB+IR 模式:")
-        so = outputs.get('scene_outputs')
-        if so:
-            w = so['modality_weights'][0]
-            print(f"  模态权重: w_rgb={w[0]:.3f} w_ir={w[1]:.3f} w_depth={w[2]:.3f}")
-            print(f"  ✅ Depth 被置零，但 IR 正常参与")
-
-    if fusion_modality == 'rgb_depth':
-        print(f"\n[消融验证] RGB+Depth 模式:")
-        so = outputs.get('scene_outputs')
-        if so:
-            w = so['modality_weights'][0]
-            print(f"  模态权重: w_rgb={w[0]:.3f} w_ir={w[1]:.3f} w_depth={w[2]:.3f}")
-            print(f"  ✅ IR 被置零，但 Depth 正常参与")
 
 
 if __name__ == '__main__':

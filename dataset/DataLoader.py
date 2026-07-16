@@ -24,10 +24,11 @@ def collate_fn(batch):
     }
     return samples, targets
 
-dataset = Multimodeldataset("D:\\files\dataset\itemdetect")
-dataloader = DataLoader(dataset, batch_size=2, shuffle=True,num_workers=0,collate_fn=collate_fn)
-for samples,targets in dataloader:
-    print("rgb:\t",samples['rgb'].shape)
-    print("depth:\t",samples['depth'].shape)
-    print("infered:\t",samples['ir'].shape)
-    print("targets:\t",targets)
+# 若需测试，请取消注释并指定数据路径：
+# dataset = Multimodeldataset("/path/to/your/dataset")
+# dataloader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=0, collate_fn=collate_fn)
+# for samples, targets in dataloader:
+#     print("rgb:\t", samples['rgb'].shape)
+#     print("depth:\t", samples['depth'].shape)
+#     print("ir:\t", samples['ir'].shape)
+#     print("targets:\t", targets)

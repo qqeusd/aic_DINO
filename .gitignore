@@ -10,6 +10,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .env
 .venv/
 venv/
@@ -18,3 +19,24 @@ venv/
 .DS_Store
 Thumbs.db
 *.log
+
+# CUDA ops build artifacts
+build/
+*.so
+*.pyd
+*.dylib
+*.dll
+*.lib
+MultiScaleDeformableAttention.egg-info/
+
+# Output directories
+output/
+runs/
+logs/
+
+# Data
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+weights/

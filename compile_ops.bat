@@ -15,7 +15,7 @@ echo CUDA_HOME=%CUDA_HOME%
 echo TORCH_CUDA_ARCH_LIST=%TORCH_CUDA_ARCH_LIST%
 
 echo === Compiling Deformable Attention CUDA Extension ===
-cd /d D:\files\MODEL\transformer-detection\DINO-main\models\dino\ops
+cd /d %~dp0models\dino\ops
 
 conda run -n pytorch python setup.py build develop
 if %ERRORLEVEL% NEQ 0 (

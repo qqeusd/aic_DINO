@@ -5,54 +5,84 @@ import os
 # === 关键：torch 必须先被 import，它的 DLL 目录才能被注册到搜索路径 ===
 # CUDA 扩展 .pyd 依赖 c10.dll, torch_cpu.dll 等，这些由 torch 提供
 
-# 额外添加 CUDA toolkit DLL 目录
-cuda_bin = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin"
-if os.path.isdir(cuda_bin):
-    os.add_dll_directory(cuda_bin)
-    print(f"📁 注册 DLL 路径: {cuda_bin}")
+# 用脚本所在目录推导项目根目录（消除硬编码路径）
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = _SCRIPT_DIR
+_OPS_DIR = os.path.join(_PROJECT_ROOT, 'models', 'dino', 'ops')
+
+# 额外添加 CUDA toolkit DLL 目录（Windows 专用）
+if sys.platform == 'win32':
+    # 尝试查找系统中的 CUDA bin 目录
+    cuda_candidates = [
+        os.environ.get('CUDA_PATH', ''),
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin",
+    ]
+    for cuda_bin in cuda_candidates:
+        if cuda_bin and os.path.isdir(cuda_bin):
+            os.add_dll_directory(cuda_bin)
+            print(f"📁 注册 CUDA DLL 路径: {cuda_bin}")
+            break
 
 # 先 import torch — 它会自动注册自己的 lib 目录到 DLL 搜索路径
 print("📦 导入 torch...")
 import torch
 print(f"   PyTorch {torch.__version__}, CUDA available: {torch.cuda.is_available()}")
 
-# 注册 torch lib 到 DLL 搜索路径（torch 已自动处理，但显式加一次）
+# 注册 torch lib 到 DLL 搜索路径
 torch_lib = os.path.join(os.path.dirname(torch.__file__), 'lib')
-if os.path.isdir(torch_lib):
+if sys.platform == 'win32' and os.path.isdir(torch_lib):
     os.add_dll_directory(torch_lib)
 
 # 现在尝试导入编译好的 CUDA 扩展
-ops_path = r'D:\files\MODEL\transformer-detection\DINO-main\models\dino\ops'
-build_path = os.path.join(ops_path, 'build', 'lib.win-amd64-cpython-312')
-sys.path.insert(0, build_path)
-sys.path.insert(0, ops_path)
+# 自动检测编译产物目录
+_ops_build_dir = os.path.join(_OPS_DIR, 'build')
+_built_libs = []
+if os.path.isdir(_ops_build_dir):
+    for _d in os.listdir(_ops_build_dir):
+        _build_path = os.path.join(_ops_build_dir, _d, 'lib')
+        if os.path.isdir(_build_path):
+            _built_libs.append(_build_path)
+        _build_path_direct = os.path.join(_ops_build_dir, _d)
+        if os.path.isdir(_build_path_direct):
+            # 检查目录名是否包含 .so 或 .pyd
+            for _f in os.listdir(_build_path_direct):
+                if _f.endswith('.so') or _f.endswith('.pyd'):
+                    _built_libs.append(_build_path_direct)
+                    break
 
-# 1. 导入 .pyd
+for _p in _built_libs:
+    sys.path.insert(0, _p)
+sys.path.insert(0, _OPS_DIR)
+
+# 1. 导入 .pyd / .so
 try:
     import MultiScaleDeformableAttention as MSDA
-    print(f"✅ MultiScaleDeformableAttention.pyd 导入成功")
+    print(f"✅ MultiScaleDeformableAttention 导入成功")
     print(f"   函数: ms_deform_attn_forward, ms_deform_attn_backward")
 except ImportError as e:
-    print(f"❌ .pyd 导入失败: {e}")
+    print(f"❌ 导入失败: {e}")
 
     # 详细诊断
-    pyd_file = os.path.join(build_path, 'MultiScaleDeformableAttention.cp312-win_amd64.pyd')
-    print(f"   .pyd 存在: {os.path.exists(pyd_file)}")
-    if os.path.exists(pyd_file):
-        print(f"   文件大小: {os.path.getsize(pyd_file):,} bytes")
+    print(f"   已在 sys.path 中添加:")
+    for _p in _built_libs:
+        _search_file = os.path.join(_p, 'MultiScaleDeformableAttention')
+        print(f"   - {_p}/ ({'有文件' if any(f.startswith('MultiScaleDeformableAttention') for f in os.listdir(_p) if os.path.isfile(os.path.join(_p, f))) else '空目录'})")
 
-    # 列出 torch lib 下的关键 DLL
-    import glob
-    torch_dlls = glob.glob(os.path.join(torch_lib, '*.dll'))
-    print(f"   torch lib DLL 数量: {len(torch_dlls)}")
-    for dll_name in ['c10.dll', 'torch_cpu.dll', 'torch_cuda.dll', 'cudart64_110.dll']:
-        dll_path = os.path.join(torch_lib, dll_name)
-        print(f"   {'✅' if os.path.exists(dll_path) else '❌'} {dll_name}")
+    # 列出 torch lib 下的关键 DLL (Windows)
+    if sys.platform == 'win32':
+        for dll_name in ['c10.dll', 'torch_cpu.dll', 'torch_cuda.dll', 'cudart64_110.dll']:
+            dll_path = os.path.join(torch_lib, dll_name)
+            print(f"   {'✅' if os.path.exists(dll_path) else '❌'} {dll_name}")
 
     sys.exit(1)
 
 # 使用 DINO 项目的正常包导入路径
-sys.path.insert(0, r'D:\files\MODEL\transformer-detection\DINO-main')
+sys.path.insert(0, _PROJECT_ROOT)
 
 try:
     from models.dino.ops.modules import MSDeformAttn

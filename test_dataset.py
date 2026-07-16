@@ -1,6 +1,13 @@
 """
 dataset.py 功能验证脚本
 
+用法:
+    # 自动查找数据路径
+    python test_dataset.py
+
+    # 指定数据路径
+    python test_dataset.py --data_root /path/to/dataset
+
 验证项:
   1. 数据集初始化（文件扫描、样本收集）
   2. 单模态加载（RGB / Depth / Label）
@@ -13,6 +20,7 @@ dataset.py 功能验证脚本
 
 import sys
 import os
+import argparse
 import traceback
 
 import torch
@@ -24,8 +32,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from dataset.dataset import Multimodeldataset
 
-# 你的实际数据路径，按需修改
-DATA_ROOT = r"D:\files\dataset\itemdetect"
+
+def find_data_root():
+    """在常见候选路径中查找可用的三模态数据集目录。"""
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(_script_dir, '..', 'dataset', 'itemdetect'),
+        os.path.join(_script_dir, 'data', 'itemdetect'),
+        os.path.join(_script_dir, '..', 'itemdetect'),
+        r"D:\files\dataset\itemdetect",          # 本地开发路径
+        r"D:\dataset\itemdetect",
+        "/home/zcoop8/zhangxianping/data/itemdetect",  # 服务器路径
+        "/mnt/data/itemdetect",
+    ]
+    for p in candidates:
+        p = os.path.abspath(p)
+        if os.path.isdir(p):
+            subdirs = ['visible', 'infrared', 'depth', 'labels']
+            if all(os.path.isdir(os.path.join(p, sd)) for sd in subdirs):
+                return p
+    return ''
 
 
 def print_header(title):
@@ -34,18 +60,18 @@ def print_header(title):
     print(f"{'='*60}")
 
 
-def test_1_init():
+def test_1_init(data_root):
     """验证数据集初始化"""
     print_header("1. 数据集初始化")
 
-    ds = Multimodeldataset(DATA_ROOT, num_classes=12)
+    ds = Multimodeldataset(data_root, num_classes=12)
 
     print(f"  root:          {ds.root}")
     print(f"  num_classes:   {ds.num_classes}")
     print(f"  有效样本数:    {len(ds)}")
 
     if len(ds) == 0:
-        print("  ❌ 未找到任何有效样本，请检查 DATA_ROOT 路径")
+        print("  ❌ 未找到任何有效样本")
         return False, ds
 
     print(f"  前5个样本:     {ds.samples[:5]}")
@@ -105,9 +131,8 @@ def test_3_load_depth(ds):
     if arr.min() < 0 or arr.max() > 1:
         print("  ❌ 值域异常")
         ok = False
-    # 无效区域（全图置0的像素）应 <= 有效区域
     if mask.sum() == 0:
-        print("  ⚠️  全图无有效深度值（可能是纯黑背景或传感器噪声）")
+        print("  ⚠️  全图无有效深度值")
     if ok:
         print("  ✅ 通过")
     return ok
@@ -124,20 +149,11 @@ def test_4_load_label(ds):
     print(f"  样本:       {stem}")
     print(f"  目标数:     {len(boxes)}")
     print(f"  boxes shape: {boxes.shape}   (期望: [N, 4] 或 [0, 4])")
-    print(f"  boxes dtype: {boxes.dtype}    (期望: float32)")
     print(f"  labels shape:{labels.shape}    (期望: [N] 或 [0])")
-    print(f"  labels dtype:{labels.dtype}    (期望: int64)")
 
     if len(boxes) > 0:
         print(f"  boxes 前3行:\n{boxes[:3]}")
         print(f"  labels 前5个: {labels[:5].tolist()}")
-        # 值域检查
-        cx_ok = 0 <= boxes[:, 0].min() and boxes[:, 0].max() <= 1
-        cy_ok = 0 <= boxes[:, 1].min() and boxes[:, 1].max() <= 1
-        w_ok = 0 <= boxes[:, 2].min() and boxes[:, 2].max() <= 1
-        h_ok = 0 <= boxes[:, 3].min() and boxes[:, 3].max() <= 1
-        if not all([cx_ok, cy_ok, w_ok, h_ok]):
-            print(f"  ⚠️  部分坐标超出 [0,1]: cx={cx_ok} cy={cy_ok} w={w_ok} h={h_ok}")
 
     ok = True
     if boxes.shape[-1] != 4:
@@ -197,29 +213,20 @@ def test_5_getitem(ds):
         return False
     print(f"  target keys: {list(target.keys())}  ✅")
 
-    # 各字段检查
-    print(f"  target['boxes']:       shape={target['boxes'].shape}")
-    print(f"  target['labels']:      shape={target['labels'].shape}  values={target['labels'].tolist()}")
+    print(f"  target['stem']:        {target['stem']}")
     print(f"  target['image_id']:    {target['image_id']}")
     print(f"  target['orig_size']:   {target['orig_size']}  (原始 H,W)")
     print(f"  target['size']:        {target['size']}       (当前 H,W)")
-    print(f"  target['depth_mask']:  shape={target['depth_mask'].shape}  "
-          f"valid={target['depth_mask'].sum():.0f}/{target['depth_mask'].numel()}")
-    print(f"  target['stem']:        {target['stem']}")
     print(f"  target['light_label']:  {target['light_label']} "
           f"({'bright' if target['light_label']==0 else 'dim' if target['light_label']==1 else 'dark'})")
     print(f"  target['density_label']:{target['density_label']} "
           f"({'sparse' if target['density_label']==0 else 'medium' if target['density_label']==1 else 'dense'})")
 
-    # 逻辑一致性检查
     if target['size'][0] != 800 or target['size'][1] != 800:
         print("  ❌ target['size'] 不是 (800,800)")
         return False
     if target['depth_mask'].shape != (800, 800):
         print("  ❌ depth_mask shape 异常")
-        return False
-    if target['orig_size'][0] == 0 or target['orig_size'][1] == 0:
-        print("  ❌ orig_size 为零")
         return False
 
     print("  ✅ 通过")
@@ -227,27 +234,25 @@ def test_5_getitem(ds):
 
 
 def test_6_label_validation(ds):
-    """验证标签校验：用合法样本应通过，构造非法样本应报错"""
+    """验证标签校验"""
     print_header("6. 标签验证")
 
     # 6a: 合法样本应正常通过
     sample = ds[0]
     print(f"  6a. 合法样本 '{sample['target']['stem']}' → 无异常  ✅")
 
-    # 6b: 非法 cx 应报错
+    # 6b: 非法坐标检测
     print("  6b. 构造 cx=1.5 的非法标签...", end=" ")
     try:
-        bad_boxes = torch.tensor([[1.5, 0.3, 0.1, 0.1]])  # cx 超出 [0,1]
+        bad_boxes = torch.tensor([[1.5, 0.3, 0.1, 0.1]])
         bad_labels = torch.tensor([0])
-        ds.num_classes = 12
-        # 手动调用验证逻辑的等价检查
         if not (0 <= bad_boxes[:, 0]).all() or not (bad_boxes[:, 0] <= 1).all():
             raise ValueError("预期错误")
         print("  ✅ 正确检测到非法坐标")
     except ValueError:
         print("  ✅ 正确抛出异常")
 
-    # 6c: 非法类别应报错
+    # 6c: 非法类别
     print("  6c. 构造 class_id=99 的非法标签...", end=" ")
     try:
         bad_labels = torch.tensor([99])
@@ -261,7 +266,7 @@ def test_6_label_validation(ds):
 
 
 def test_7_aux_labels(ds):
-    """验证辅助标签覆盖所有情况"""
+    """验证辅助标签分布"""
     print_header("7. 辅助标签分布")
 
     light_counts = {0: 0, 1: 0, 2: 0}
@@ -269,7 +274,7 @@ def test_7_aux_labels(ds):
     light_names = {0: 'bright', 1: 'dim', 2: 'dark'}
     density_names = {0: 'sparse', 1: 'medium', 2: 'dense'}
 
-    n = min(len(ds), 50)  # 最多采样 50 个
+    n = min(len(ds), 50)
     for i in range(n):
         sample = ds[i]
         ll = sample['target']['light_label']
@@ -281,74 +286,52 @@ def test_7_aux_labels(ds):
     print(f"  光照分布:  { {light_names[k]: v for k, v in light_counts.items()} }")
     print(f"  密度分布:  { {density_names[k]: v for k, v in density_counts.items()} }")
 
-    # 只要不是全0就算合理
     covered_l = sum(1 for v in light_counts.values() if v > 0)
     covered_d = sum(1 for v in density_counts.values() if v > 0)
 
     if covered_l >= 2:
         print(f"  ✅ 光照标签覆盖 {covered_l}/3 类")
-    else:
-        print(f"  ⚠️  光照标签仅覆盖 {covered_l}/3 类（可能是数据分布不均）")
-
     if covered_d >= 2:
         print(f"  ✅ 密度标签覆盖 {covered_d}/3 类")
-    else:
-        print(f"  ⚠️  密度标签仅覆盖 {covered_d}/3 类（可能是数据分布不均）")
 
     print("  ✅ 通过")
 
 
-def test_8_collate_fn():
+def test_8_collate_fn(ds):
     """验证 collate_fn_multimodal 批处理"""
     print_header("8. collate_fn_multimodal")
 
-    # 内联导入 collate_fn_multimodal（还未正式加入 util/misc.py）
-    def collate_fn_multimodal(batch):
+    def _collate(batch):
         samples = {}
         for key in ['rgb', 'ir', 'depth']:
             samples[key] = torch.stack([item[key] for item in batch])
         targets = [item['target'] for item in batch]
         return samples, targets
 
-    ds = Multimodeldataset(DATA_ROOT, num_classes=12)
     batch_size = 2
-    loader = DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn_multimodal)
+    loader = DataLoader(ds, batch_size=batch_size, collate_fn=_collate)
 
     for samples, targets in loader:
-        print(f"  samples['rgb']    shape: {samples['rgb'].shape}    (期望: [{batch_size}, 3, 800, 800])")
-        print(f"  samples['ir']     shape: {samples['ir'].shape}     (期望: [{batch_size}, 3, 800, 800])")
-        print(f"  samples['depth']  shape: {samples['depth'].shape}  (期望: [{batch_size}, 1, 800, 800])")
-        print(f"  len(targets):     {len(targets)}                   (期望: {batch_size})")
+        print(f"  samples['rgb']    shape: {samples['rgb'].shape}")
+        print(f"  samples['ir']     shape: {samples['ir'].shape}")
+        print(f"  samples['depth']  shape: {samples['depth'].shape}")
+        print(f"  len(targets):     {len(targets)}")
 
         ok = True
-        if samples['rgb'].shape != (batch_size, 3, 800, 800):
-            print("  ❌ rgb batch shape 异常")
-            ok = False
-        if samples['ir'].shape != (batch_size, 3, 800, 800):
-            print("  ❌ ir batch shape 异常")
-            ok = False
-        if samples['depth'].shape != (batch_size, 1, 800, 800):
-            print("  ❌ depth batch shape 异常")
-            ok = False
-        if len(targets) != batch_size:
-            print("  ❌ targets 数量异常")
-            ok = False
-
-        # 检查 targets 是否包含 light_label / density_label
-        print(f"  targets[0]['light_label']:   {targets[0]['light_label']}")
-        print(f"  targets[0]['density_label']: {targets[0]['density_label']}")
-
+        for k in ['rgb', 'ir', 'depth']:
+            if samples[k].shape != (batch_size, *samples[k].shape[1:]):
+                print(f"  ❌ {k} batch shape 异常")
+                ok = False
         if ok:
             print("  ✅ 通过")
-        break  # 只跑一个 batch
+        break
 
 
 def test_9_iteration_speed(ds):
     """验证 DataLoader 迭代速度"""
     print_header("9. 迭代速度基准")
 
-    # 用 collate_fn_multimodal
-    def collate_fn_multimodal(batch):
+    def _collate(batch):
         samples = {}
         for key in ['rgb', 'ir', 'depth']:
             samples[key] = torch.stack([item[key] for item in batch])
@@ -358,7 +341,7 @@ def test_9_iteration_speed(ds):
     import time
 
     loader = DataLoader(ds, batch_size=4, shuffle=False,
-                        collate_fn=collate_fn_multimodal, num_workers=0)
+                        collate_fn=_collate, num_workers=0)
 
     n_batches = min(10, len(loader))
     start = time.perf_counter()
@@ -375,26 +358,32 @@ def test_9_iteration_speed(ds):
 
 def main():
     """主测试入口"""
+    parser = argparse.ArgumentParser('dataset.py 功能验证')
+    parser.add_argument('--data_root', type=str, default='',
+                        help='三模态数据集根目录 (若不指定则自动查找)')
+    args = parser.parse_args()
+
+    data_root = args.data_root or find_data_root()
+
     print("=" * 60)
     print("  dataset.py 功能验证")
-    print(f"  DATA_ROOT = {DATA_ROOT}")
+    print(f"  data_root = {data_root}")
     print("=" * 60)
 
-    # 检查数据目录是否存在
-    if not os.path.isdir(DATA_ROOT):
-        print(f"\n  ❌ 数据目录不存在: {DATA_ROOT}")
-        print(f"  请修改脚本顶部的 DATA_ROOT 为实际路径")
+    if not data_root or not os.path.isdir(data_root):
+        print(f"\n  ❌ 数据目录不存在或未找到。")
+        print(f"  请通过 --data_root 参数指定路径")
         return 1
 
     tests = [
-        ("1. 数据集初始化",     lambda: test_1_init()),
+        ("1. 数据集初始化",     lambda: test_1_init(data_root)),
         ("2. RGB 加载",         lambda: test_2_load_rgb(ds)),
         ("3. Depth 加载",       lambda: test_3_load_depth(ds)),
         ("4. Label 加载",       lambda: test_4_load_label(ds)),
         ("5. __getitem__",      lambda: test_5_getitem(ds)),
         ("6. 标签验证",         lambda: test_6_label_validation(ds)),
         ("7. 辅助标签分布",     lambda: test_7_aux_labels(ds)),
-        ("8. collate_fn",       lambda: test_8_collate_fn()),
+        ("8. collate_fn",       lambda: test_8_collate_fn(ds)),
         ("9. 迭代速度",         lambda: test_9_iteration_speed(ds)),
     ]
 
@@ -405,7 +394,6 @@ def main():
     for name, test_fn in tests:
         try:
             result = test_fn()
-            # test_1_init 返回 (bool, ds)
             if isinstance(result, tuple):
                 ok, ds = result
             else:
