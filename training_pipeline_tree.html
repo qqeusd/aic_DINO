@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DINO 训练流程调用树</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
+header{background:#16213e;padding:16px 24px;border-bottom:2px solid #0f3460;position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:1.4em;color:#e94560;white-space:nowrap}
+#search{flex:1;min-width:200px;padding:10px 16px;border:1px solid #0f3460;border-radius:8px;background:#0f3460;color:#e0e0e0;font-size:14px;outline:none;transition:.2s}
+#search:focus{border-color:#e94560;box-shadow:0 0 0 2px rgba(233,69,96,.3)}
+#search::placeholder{color:#888}
+#control-bar{display:flex;gap:8px;flex-wrap:wrap}
+#control-bar button{padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#ccc;cursor:pointer;font-size:13px;transition:.2s;white-space:nowrap}
+#control-bar button:hover{background:#1a3a6e;color:#fff}
+#control-bar button.active{background:#e94560;border-color:#e94560;color:#fff}
+#stats{font-size:13px;color:#888;white-space:nowrap}
+main{padding:20px 24px;max-width:1400px;margin:0 auto}
+#tree-container{background:#16213e;border-radius:12px;padding:20px;overflow:auto;max-height:calc(100vh - 140px)}
+.tree ul{list-style:none;padding-left:24px;position:relative}
+.tree ul::before{content:'';position:absolute;top:0;bottom:0;left:8px;border-left:1px dashed #2a4a7e}
+.tree li{position:relative;margin:2px 0}
+.tree li::before{content:'';position:absolute;top:.85em;left:-16px;width:16px;border-top:1px dashed #2a4a7e}
+
+/* toggle button */
+.toggle-btn{position:absolute;left:-22px;top:4px;width:18px;height:18px;border-radius:50%;background:#0f3460;border:1px solid #2a4a7e;color:#aaa;cursor:pointer;font-size:12px;line-height:16px;text-align:center;z-index:5;transition:.2s;padding:0}
+.toggle-btn:hover{background:#1a3a6e;color:#fff}
+.toggle-btn.empty{visibility:hidden}
+
+.node{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;cursor:pointer;transition:.2s;font-size:13.5px;position:relative;margin:1px 0}
+.node:hover{filter:brightness(1.2);box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.node.highlight{outline:3px solid #e94560;outline-offset:2px;z-index:10}
+.node .func-name{font-weight:600;font-family:'Cascadia Code','Fira Code','Consolas',monospace}
+.node .loc{font-size:11px;opacity:.7;font-family:'Cascadia Code','Fira Code','Consolas',monospace}
+.node .params{font-size:11px;opacity:.85;color:#aaa}
+.node .desc{font-size:11.5px;opacity:.9}
+.node .return{font-size:11px;color:#4fc3f7;font-style:italic}
+
+/* category colors */
+.cat-main{background:#1b2838;border-left:3px solid #e94560}
+.cat-model{background:#1a2a1a;border-left:3px solid #4caf50}
+.cat-backbone{background:#1a2a2a;border-left:3px solid #26a69a}
+.cat-transformer{background:#1a1a2e;border-left:3px solid #7c4dff}
+.cat-loss{background:#2a1a1a;border-left:3px solid #ff7043}
+.cat-data{background:#2a2a1a;border-left:3px solid #ffc107}
+.cat-eval{background:#1a1a2a;border-left:3px solid #42a5f5}
+.cat-util{background:#222;border-left:3px solid #9e9e9e}
+.cat-loop{background:#1b1a28;border-left:3px solid #ff6e40}
+
+.detail-panel{position:fixed;right:20px;top:100px;width:400px;max-height:calc(100vh - 140px);overflow-y:auto;background:#16213e;border:1px solid #0f3460;border-radius:12px;padding:20px;display:none;z-index:200;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.detail-panel.show{display:block}
+.detail-panel h3{color:#e94560;margin-bottom:12px;font-size:1.1em}
+.detail-panel .field{margin:8px 0}
+.detail-panel .field-label{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.5px}
+.detail-panel .field-value{font-size:13.5px;color:#ddd;margin-top:2px;word-break:break-all}
+.detail-panel .field-value code{background:#0f3460;padding:2px 6px;border-radius:3px;font-size:12px}
+.detail-panel .close-btn{position:absolute;top:12px;right:12px;background:none;border:none;color:#888;font-size:20px;cursor:pointer;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.detail-panel .close-btn:hover{background:#0f3460;color:#fff}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:199;display:none}
+.overlay.show{display:block}
+
+.tooltip{position:fixed;pointer-events:none;background:#0f3460;color:#ddd;padding:6px 10px;border-radius:6px;font-size:12px;z-index:300;display:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+
+@media(max-width:900px){
+  .detail-panel{width:calc(100vw - 40px);right:20px;left:20px}
+}
+
+/* animated pulse for search matches */
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(233,69,96,.6)}50%{box-shadow:0 0 0 8px rgba(233,69,96,0)}}
+.node.pulse{animation:pulse 1.5s ease-in-out}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🦕 DINO 训练流程调用树</h1>
+  <input type="text" id="search" placeholder="搜索函数名、文件名、参数..." oninput="doSearch()">
+  <div id="control-bar">
+    <button onclick="expandAll()" title="展开全部节点">📖 全部展开</button>
+    <button onclick="collapseAll()" title="折叠全部节点">📕 全部折叠</button>
+    <button onclick="expandToLevel(3)" title="展开到第3层">🔍 展开3层</button>
+    <button onclick="expandToLevel(5)" title="展开到第5层">🔍 展开5层</button>
+    <button onclick="clearSearch()">✕ 清除搜索</button>
+  </div>
+  <span id="stats"></span>
+</header>
+
+<div class="overlay" id="overlay" onclick="closeDetail()"></div>
+<div class="detail-panel" id="detail">
+  <button class="close-btn" onclick="closeDetail()">×</button>
+  <h3 id="detail-title"></h3>
+  <div id="detail-body"></div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<main>
+<div id="tree-container">
+<div class="tree">
+
+<!-- Tree nodes rendered by JS -->
+<ul id="root-tree"></ul>
+
+</div>
+</div>
+</main>
+
+<script>
+// ============================================================
+// Tree Data Structure
+// ============================================================
+// Constructor helper for nodes
+function N(funcName, cat, file, line, params, desc, returns, children) {
+  return {funcName, cat, file, line, params, desc, returns, children:children||[]};
+}
+
+// Categories (used in CSS): main, model, backbone, transformer, loss, data, eval, util, loop
+
+const TREE = N('main(args)', 'main', 'main.py', 86,
+  'args: argparse.Namespace (CLI + config合并)',
+  '训练主入口：解析参数→构建模型→加载数据→训练循环',
+  '无 (保存模型到磁盘)',
+  [
+    N('utils.init_distributed_mode(args)', 'util', 'util/misc.py', null,
+      'args (修改其 rank/gpu/world_size 属性)',
+      '初始化分布式训练环境: 读取环境变量, 设置CUDA设备, init_process_group',
+      '无',
+      null
+    ),
+    N('SLConfig.fromfile(config_file)', 'util', 'util/slconfig.py', null,
+      'filename: .py配置文件路径',
+      '解析配置文件为SLConfig对象，支持_base_继承和_delete_删除键',
+      'cfg: SLConfig (属性式访问的配置字典)',
+      [
+        N('SLConfig._file2dict(filename)', 'util', 'util/slconfig.py', 81,
+          'filename: .py配置文件路径',
+          '将.py配置文件作为Python模块导入，提取所有顶层变量为dict',
+          '(cfg_dict, cfg_text)',
+          [
+            N('SLConfig._validate_py_syntax(filename)', 'util', 'util/slconfig.py', 71,
+              'filename: str',
+              '用ast.parse检查Python语法是否有误',
+              '无 (有语法错误时抛SyntaxError)',
+              null
+            ),
+            N('import_module(temp_module_name)', 'util', '(Python stdlib) importlib', null,
+              '模块名',
+              '动态导入临时目录下的配置模块',
+              'module对象',
+              null
+            )
+          ]
+        ),
+        N('SLConfig._merge_a_into_b(a, b)', 'util', 'util/slconfig.py', null,
+          'a: 源dict, b: 目标dict',
+          '将a的内容递归合并到b (支持_delete_键删除、list索引替换)',
+          '合并后的dict',
+          null
+        )
+      ]
+    ),
+    N('setup_logger(output, distributed_rank, ...)', 'util', 'util/logger.py', null,
+      'output: 日志文件路径 | distributed_rank: int',
+      '创建带颜色的logger，rank>0时禁用控制台输出，所有rank写文件',
+      'logging.Logger (LRU缓存，同参数只创建一次)',
+      [
+        N('logging.StreamHandler (控制台)', 'util', '(Python stdlib) logging', null, null, null, null, null),
+        N('_cached_log_stream(filename)', 'util', 'util/logger.py', null,
+          'filename: str',
+          '打开日志文件(append模式)，LRU缓存避免重复打开同一文件',
+          'file handle',
+          null
+        )
+      ]
+    ),
+    N('=== 阶段一: 构建模型 ===', 'main', null, null, null, '----------- 模型构建 -----------', null, null),
+    N('build_model_main(args)', 'main', 'main.py', 78,
+      'args: 合并后的Namespace/SLConfig (需含modelname)',
+      '从Registry MODULE_BUILD_FUNCS查找构建函数并调用',
+      '(model, criterion, postprocessors)',
+      [
+        N('MODULE_BUILD_FUNCS.get(args.modelname)', 'model', 'models/registry.py', 34,
+          'key: 注册的模型名 (如 "dino")',
+          '从Registry字典中查找已注册的模型构建函数',
+          'build_func: callable',
+          null
+        ),
+        N('build_dino(args)', 'model', 'models/dino/dino.py', 702,
+          'args: Namespace (含backbone/hidden_dim/nheads/num_queries/num_classes等50+参数)',
+          'DINO模型的完整构建函数：backbone + transformer + matcher + criterion',
+          '(model: DINO, criterion: SetCriterion, postprocessors: dict)',
+          [
+            N('build_backbone(args)', 'backbone', 'models/dino/backbone.py', 151,
+              'args: 含backbone/lr_backbone/dilation/return_interm_indices/position_embedding等',
+              '根据backbone名构建ResNet/Swin/ConvNeXt + 位置编码，用Joiner组合',
+              'Joiner (backbone + position_embedding)',
+              [
+                N('build_position_encoding(args)', 'backbone', 'models/dino/position_encoding.py', 138,
+                  'args: 含hidden_dim/position_embedding/pe_temperatureH/pe_temperatureW',
+                  '选择位置编码类型：PositionEmbeddingSineHW (默认) 或 PositionEmbeddingLearned',
+                  'PositionEmbeddingSineHW 或 PositionEmbeddingLearned',
+                  [
+                    N('PositionEmbeddingSineHW.__init__', 'backbone', 'models/dino/position_encoding.py', 67,
+                      'num_pos_feats=hidden_dim//2, temperatureH, temperatureW, normalize=True',
+                      '可分离H/W温度的Sine-Cosine位置编码',
+                      'nn.Module',
+                      null
+                    ),
+                    N('PositionEmbeddingSineHW.forward(tensor_list)', 'backbone', 'models/dino/position_encoding.py', 79,
+                      'tensor_list: NestedTensor [bs, C, H, W]',
+                      '对mask非零区域cumsum生成坐标→Sine/Cos编码→[bs, hidden_dim, H, W]',
+                      'pos: Tensor [bs, hidden_dim, H, W]',
+                      null
+                    )
+                  ]
+                ),
+                N('Backbone (ResNet50/101)', 'backbone', 'models/dino/backbone.py', 109,
+                  'name: "resnet50"/"resnet101", train_backbone, dilation, return_interm_indices',
+                  'torchvision ResNet + FrozenBatchNorm2d → IntermediateLayerGetter提取多层特征',
+                  'BackboneBase (提取layer1-4特征)',
+                  [
+                    N('FrozenBatchNorm2d', 'backbone', 'models/dino/backbone.py', 36,
+                      'n: channels',
+                      '冻结BN统计量和仿射参数的BatchNorm (防止预训练统计量被破坏)',
+                      'nn.Module',
+                      null
+                    )
+                  ]
+                ),
+                N('build_swin_transformer(modelname, ...)', 'backbone', 'models/dino/swin_transformer.py', 683,
+                  'modelname: "swin_T_224_1k"/"swin_B_384_22k"/"swin_L_384_22k" 等',
+                  '构建Swin Transformer backbone: PatchEmbed + 4个BasicLayer + PatchMerging',
+                  'SwinTransformer',
+                  [
+                    N('SwinTransformer.__init__', 'backbone', 'models/dino/swin_transformer.py', 435,
+                      'pretrain_img_size, patch_size, embed_dim, depths, num_heads, window_size, ...',
+                      '构建patch embedding + 4个stage (每个含多个SwinTransformerBlock) + 下采样层',
+                      'nn.Module',
+                      null
+                    ),
+                    N('SwinTransformer.forward(tensor_list)', 'backbone', 'models/dino/swin_transformer.py', null,
+                      'tensor_list: NestedTensor',
+                      'patch嵌入→各stage处理→输出多尺度特征图',
+                      'outs_dict: {stage_idx: NestedTensor}',
+                      [
+                        N('BasicLayer.forward(x, Wh, Ww)', 'backbone', 'models/dino/swin_transformer.py', 291,
+                          'x: 特征, Wh, Ww: 窗口尺寸',
+                          '交替执行W-MSA (窗口自注意力) 和SW-MSA (移位窗口自注意力)',
+                          'x_out, H, W, x, Wh, Ww',
+                          [
+                            N('SwinTransformerBlock.forward(x, mask_matrix)', 'backbone', 'models/dino/swin_transformer.py', 150,
+                              'x: 特征, mask_matrix: 移位窗口的attn mask',
+                              'LayerNorm→WindowAttention(含相对位置偏置)→残差→LayerNorm→MLP→残差',
+                              'x: Tensor',
+                              [
+                                N('WindowAttention.forward(x, mask)', 'backbone', 'models/dino/swin_transformer.py', 69,
+                                  'x: 窗口化特征, mask: attn mask',
+                                  'Q/K/V投影→相对位置偏置表→QK^T/sqrt(d)→加偏置→softmax→×V→输出投影',
+                                  'attn_output: Tensor',
+                                  null
+                                )
+                              ]
+                            )
+                          ]
+                        )
+                      ]
+                    )
+                  ]
+                ),
+                N('build_convnext(modelname, ...)', 'backbone', 'models/dino/convnext.py', 234,
+                  'modelname: "convnext_xlarge_22k", pretrained, backbone_dir',
+                  '构建ConvNeXt: stem(Conv4×4)→4个stage(多个Block)→每stage输出',
+                  'ConvNeXt',
+                  [
+                    N('ConvNeXt.__init__', 'backbone', 'models/dino/convnext.py', 55,
+                      'depths, dims, drop_path_rate, out_indices',
+                      'stem + 4个stage (每个含多个Block: DWConv7x7→LN→Linear→GELU→Linear→LayerScale→DropPath)',
+                      'nn.Module',
+                      null
+                    ),
+                    N('ConvNeXt.forward_features(x)', 'backbone', 'models/dino/convnext.py', null,
+                      'x: Tensor [B,3,H,W]',
+                      '依次经过stem→stage0→norm0→stage1→norm1→...→收集多尺度输出',
+                      'tuple of 4 feature maps',
+                      null
+                    )
+                  ]
+                ),
+                N('Joiner(backbone, position_embedding)', 'backbone', 'models/dino/backbone.py', 131,
+                  'backbone, position_embedding: nn.Module',
+                  'nn.Sequential包装：backbone提取特征 → position_embedding生成位置编码',
+                  'Joiner (nn.Sequential子类)',
+                  [
+                    N('Joiner.forward(tensor_list)', 'backbone', 'models/dino/backbone.py', 135,
+                      'tensor_list: NestedTensor',
+                      '调用backbone提取多尺度特征 → 对每层特征生成位置编码',
+                      '(features: List[NestedTensor], pos: List[Tensor])',
+                      null
+                    )
+                  ]
+                )
+              ]
+            ),
+            N('build_ir_encoder(args) / build_depth_encoder(args)', 'model', 'models/dino/backbone.py', 146,
+              'args',
+              '多模态IR/深度编码器 (项目当前返回None — 预留接口)',
+              'None',
+              null
+            ),
+            N('build_deformable_transformer(args)', 'transformer', 'models/dino/deformable_transformer.py', 1004,
+              'args: 含hidden_dim/nheads/num_queries/enc_layers/dec_layers/num_feature_levels/dn相关等40+参数',
+              '构建可变形Transformer: Encoder + Decoder + Two-Stage机制 + DN支持',
+              'DeformableTransformer',
+              [
+                N('RandomBoxPerturber(...)', 'transformer', 'models/dino/utils.py', 64,
+                  'x/y/w/h_noise_scale',
+                  '(可选) 对decoder的anchor boxes添加随机扰动，增强训练鲁棒性',
+                  'RandomBoxPerturber callable',
+                  null
+                ),
+                N('DeformableTransformer.__init__', 'transformer', 'models/dino/deformable_transformer.py', 27,
+                  'd_model=256, nhead=8, num_queries=900, num_encoder_layers=6, num_decoder_layers=6, dim_feedforward=2048, dropout, activation, num_feature_levels=4, two_stage_type, decoder_sa_type, module_seq, embed_init_tgt, ...',
+                  '组装Encoder(6层可变形自注意力)+Decoder(6层可变形交叉注意力)+Two-Stage query选择+DN',
+                  'nn.Module',
+                  [
+                    N('DeformableTransformerEncoderLayer.__init__', 'transformer', 'models/dino/deformable_transformer.py', 765,
+                      'd_model=256, d_ffn=1024, dropout=0.1, activation="relu", n_levels=4, n_heads=8, n_points=4',
+                      '单层Encoder: MSDeformAttn (多尺度可变形自注意力) → Add&Norm → FFN → Add&Norm',
+                      'nn.Module',
+                      [
+                        N('MSDeformAttn.__init__', 'transformer', 'models/dino/ops/modules/ms_deform_attn.py', 30,
+                          'd_model=256, n_levels=4, n_heads=8, n_points=4',
+                          '可变形注意力模块: sampling_offsets预测偏移 + attention_weights预测权重 + value_proj + output_proj',
+                          'nn.Module',
+                          null
+                        ),
+                        N('_get_activation_fn(activation)', 'transformer', 'models/dino/utils.py', 122,
+                          'activation: str ("relu"/"gelu"/"glu"/"prelu")',
+                          '将激活函数名字符串映射为实际的PyTorch函数/模块',
+                          'callable 或 nn.Module',
+                          null
+                        )
+                      ]
+                    ),
+                    N('TransformerEncoder.__init__', 'transformer', 'models/dino/deformable_transformer.py', 434,
+                      'encoder_layer, num_layers=6, norm, d_model=256, deformable_encoder=True, two_stage_type',
+                      '深拷贝encoder_layer ×6层 → 可选的每层输出投影(用于two-stage中间监督)',
+                      'nn.Module',
+                      [
+                        N('_get_clones(module, N, layer_share)', 'transformer', 'models/dino/deformable_transformer.py', 997,
+                          'module: nn.Module, N: int, layer_share: bool',
+                          '生成N个深拷贝副本(或共享)组成的ModuleList',
+                          'nn.ModuleList',
+                          null
+                        )
+                      ]
+                    ),
+                    N('DeformableTransformerDecoderLayer.__init__', 'transformer', 'models/dino/deformable_transformer.py', 822,
+                      'd_model=256, d_ffn=1024, dropout=0.1, activation="relu", n_levels=4, n_heads=8, n_points=4, decoder_sa_type="sa", module_seq=["sa","ca","ffn"]',
+                      '单层Decoder: Self-Attn → Cross-Attn(MSDeformAttn) → FFN (顺序由module_seq控制)',
+                      'nn.Module',
+                      [
+                        N('nn.MultiheadAttention (self_attn)', 'transformer', '(PyTorch) torch.nn', null,
+                          'embed_dim=d_model, num_heads=nheads, dropout=dropout',
+                          '标准多头自注意力: Q/K/V投影→Scaled Dot-Product Attn→输出投影',
+                          'nn.Module',
+                          null
+                        ),
+                        N('MSDeformAttn (cross_attn)', 'transformer', 'models/dino/ops/modules/ms_deform_attn.py', 30,
+                          'd_model, n_levels, n_heads, n_points',
+                          '可变形交叉注意力: 用query预测采样点和权重，从多尺度memory中采样',
+                          'nn.Module',
+                          null
+                        ),
+                        N('MLP (label_embedding 用于ca_label模式)', 'transformer', 'models/dino/utils.py', 107,
+                          'input_dim, hidden_dim, output_dim, num_layers',
+                          '多层感知机: Linear→ReLU→Linear→ReLU→...→Linear (无最后激活)',
+                          'nn.Module',
+                          null
+                        )
+                      ]
+                    ),
+                    N('TransformerDecoder.__init__', 'transformer', 'models/dino/deformable_transformer.py', 579,
+                      'decoder_layer, num_layers=6, norm=LayerNorm, return_intermediate=True, d_model=256, query_dim=4, deformable_decoder=True, ...',
+                      '深拷贝decoder_layer ×6层 → ref_point_head(MLP)用于条件查询位置编码 → bbox_embed/class_embed由外部注入',
+                      'nn.Module',
+                      [
+                        N('MLP (ref_point_head)', 'transformer', 'models/dino/utils.py', 107,
+                          'query_dim//2*d_model=512, d_model=256, d_model=256, 2',
+                          '从参考点的sine编码预测条件空间查询位置编码',
+                          'MLP',
+                          null
+                        )
+                      ]
+                    ),
+                    N('nn.Embedding (tgt_embed)', 'transformer', '(PyTorch) torch.nn', null,
+                      'num_queries=900, d_model=256',
+                      '可学习的decoder query内容嵌入 (tgt)',
+                      'nn.Embedding',
+                      null
+                    ),
+                    N('nn.Embedding (refpoint_embed)', 'transformer', '(PyTorch) torch.nn', null,
+                      'num_queries=900, query_dim=4',
+                      '(无two_stage时) 可学习的初始参考点嵌入',
+                      'nn.Embedding',
+                      null
+                    ),
+                    N('nn.Parameter (level_embed)', 'transformer', '(PyTorch) torch.nn', null,
+                      'num_feature_levels=4, d_model=256',
+                      '多尺度特征层级嵌入 (区分不同分辨率特征)',
+                      'nn.Parameter',
+                      null
+                    ),
+                    N('nn.Linear (enc_output) + nn.LayerNorm', 'transformer', '(PyTorch) torch.nn', null,
+                      'd_model=256 → d_model=256',
+                      '(two_stage时) 编码器输出投影，用于生成初始proposal的分类/回归分数',
+                      'nn.Module',
+                      null
+                    )
+                  ]
+                ),
+                N('DeformableTransformer._reset_parameters()', 'transformer', 'models/dino/deformable_transformer.py', 225,
+                  '无',
+                  'Xavier初始化所有参数, MSDeformAttn螺旋初始化, level_embed正态初始化',
+                  '无',
+                  null
+                )
+              ]
+            ),
+            N('DINO.__init__(backbone, ir_encoder, depth_encoder, transformer, num_classes, num_queries, ...)', 'model', 'models/dino/dino.py', 40,
+              'backbone, ir_encoder, depth_encoder, transformer, num_classes=91, num_queries=900, aux_loss=True, iter_update=True, query_dim=4, num_feature_levels=4, nheads=8, two_stage_type, dec_pred_class_embed_share, dec_pred_bbox_embed_share, decoder_sa_type, num_patterns, dn_number=100, dn_box_noise_scale=0.4, dn_label_noise_ratio=0.5, ...',
+              '组装完整DINO模型: input_proj(多尺度特征投影) + bbox_embed/class_embed(预测头) + two_stage配置 + DN标签编码',
+              'nn.Module',
+              [
+                N('nn.Embedding (label_enc)', 'model', '(PyTorch) torch.nn', null,
+                  'dn_labelbook_size+1=92, hidden_dim=256',
+                  'DN训练时的标签嵌入 (将类别标签映射为向量)',
+                  'nn.Embedding',
+                  null
+                ),
+                N('nn.ModuleList (input_proj)', 'model', '(PyTorch) torch.nn', null,
+                  '每层: Conv2d(in_c,256,1) + GroupNorm(32,256) + (可选) Conv2d(256,256,3,2)',
+                  '将不同通道数的backbone特征投影到统一hidden_dim=256，额外层用stride=2下采样',
+                  'nn.ModuleList',
+                  null
+                ),
+                N('nn.ModuleList (bbox_embed)', 'model', '(PyTorch) torch.nn', null,
+                  '每层: MLP(256,256,4,3) — 或共享',
+                  '每个decoder层的边界框回归头 (预测Δcx,Δcy,Δw,Δh)',
+                  'nn.ModuleList of MLP',
+                  null
+                ),
+                N('nn.ModuleList (class_embed)', 'model', '(PyTorch) torch.nn', null,
+                  '每层: nn.Linear(256, num_classes=91) — 或共享',
+                  '每个decoder层的类别预测头',
+                  'nn.ModuleList of nn.Linear',
+                  null
+                ),
+                N('nn.Embedding (refpoint_embed) [two_stage时]', 'model', '(PyTorch) torch.nn', null,
+                  'two_stage_add_query_num, query_dim',
+                  '(可选) two_stage模式下额外添加的可学习参考点',
+                  'nn.Embedding',
+                  [
+                    N('DINO.init_ref_points(use_num_queries)', 'model', 'models/dino/dino.py', 194,
+                      'use_num_queries: int',
+                      '初始化refpoint_embed: xy随机uniform→inverse_sigmoid→冻结; hw可选learn/fix/share',
+                      '无',
+                      null
+                    )
+                  ]
+                ),
+                N('nn.Embedding (label_embedding) [ca_label模式]', 'model', '(PyTorch) torch.nn', null,
+                  'num_classes=91, hidden_dim=256',
+                  'decoder_sa_type="ca_label"时，用类别嵌入作为self-attention的key/value',
+                  'nn.Embedding',
+                  null
+                ),
+                N('DINO._reset_parameters()', 'model', 'models/dino/dino.py', 188,
+                  '无',
+                  'Xavier初始化input_proj, class_embed偏置设为focal loss先验, bbox_embed末层权重清零',
+                  '无',
+                  null
+                )
+              ]
+            ),
+            N('build_matcher(args)', 'loss', 'models/dino/matcher.py', 178,
+              'args: 含matcher_type/set_cost_class/set_cost_bbox/set_cost_giou/focal_alpha',
+              '构建匈牙利匹配器或简单最小和匹配器',
+              'HungarianMatcher 或 SimpleMinsumMatcher',
+              [
+                N('HungarianMatcher.__init__', 'loss', 'models/dino/matcher.py', 32,
+                  'cost_class=2.0, cost_bbox=5.0, cost_giou=2.0, focal_alpha=0.25',
+                  '初始化匹配器: 存储分类/框/GIoU的权重和focal_alpha',
+                  'nn.Module',
+                  null
+                ),
+                N('HungarianMatcher.forward(outputs, targets)', 'loss', 'models/dino/matcher.py', 48,
+                  'outputs: {pred_logits:[bs,nq,91], pred_boxes:[bs,nq,4]}, targets: [{labels, boxes}]',
+                  '计算Focal cost+L1 cost+GIoU cost→合并→对每张图调用scipy线性指派算法求最优匹配',
+                  'indices: [(pred_idx, tgt_idx), ...] per image',
+                  [
+                    N('generalized_box_iou(boxes1, boxes2)', 'util', 'util/box_ops.py', null,
+                      'boxes1: [N,4] xyxy, boxes2: [M,4] xyxy',
+                      '计算GIoU = IoU - |外接矩形\\并集|/|外接矩形|',
+                      'giou: [N, M]',
+                      null
+                    ),
+                    N('box_cxcywh_to_xyxy(x)', 'util', 'util/box_ops.py', null,
+                      'x: [...,4] (cx,cy,w,h)',
+                      '坐标格式转换: cx,cy,w,h → x0,y0,x1,y1',
+                      'tensor [...,4]',
+                      null
+                    ),
+                    N('scipy.optimize.linear_sum_assignment(C)', 'loss', '(scipy) 第三方库', null,
+                      'C: cost矩阵 [nq, ntgt]',
+                      '匈牙利算法求二分图最小权匹配',
+                      '(row_ind, col_ind)',
+                      null
+                    )
+                  ]
+                )
+              ]
+            ),
+            N('SetCriterion.__init__(num_classes, matcher, weight_dict, focal_alpha, losses)', 'loss', 'models/dino/dino.py', 350,
+              'num_classes=91, matcher: HungarianMatcher, weight_dict: {loss_ce:1, loss_bbox:5, loss_giou:2, ...}, focal_alpha=0.25, losses=["labels","boxes","cardinality"]',
+              '损失函数模块: 存储匹配器和各损失权重',
+              'nn.Module',
+              null
+            ),
+            N('PostProcess.__init__(num_select, nms_iou_threshold)', 'eval', 'models/dino/dino.py', 652,
+              'num_select=300, nms_iou_threshold=-1 (默认不做NMS)',
+              '后处理器: sigmoid→topk→坐标格式转换→缩放到原图尺寸',
+              'nn.Module',
+              null
+            )
+          ]
+        )
+      ]
+    ),
+    N('=== 阶段二: 优化器参数分组 ===', 'main', null, null, null, '----------- 优化器配置 -----------', null, null),
+    N('get_param_dict(args, model_without_ddp)', 'util', 'util/get_param_dicts.py', 15,
+      'args: 含param_dict_type/lr/lr_backbone/lr_linear_proj_names等, model: nn.Module',
+      '按参数名关键字分组，设置不同学习率 (backbone用lr_backbone, linear_proj用lr*lr_linear_proj_mult)',
+      'param_dicts: [{"params":..., "lr":...}, ...]',
+      [
+        N('match_name_keywords(n, name_keywords)', 'util', 'util/get_param_dicts.py', 6,
+          'n: 参数名str, name_keywords: 关键字列表',
+          '检查参数名是否包含任一关键字 (用于分组筛选)',
+          'bool',
+          null
+        )
+      ]
+    ),
+    N('torch.optim.AdamW(param_dicts, lr, weight_decay)', 'util', '(PyTorch) torch.optim', null,
+      'param_dicts, lr=1e-4, weight_decay=1e-4',
+      'AdamW优化器 (decoupled weight decay)',
+      'optimizer',
+      []
+    ),
+    N('lr_scheduler (StepLR / OneCycleLR / MultiStepLR)', 'util', '(PyTorch) torch.optim.lr_scheduler', null,
+      'optimizer, step_size/milestones/max_lr等',
+      '学习率调度器 (默认StepLR: 每lr_drop epoch学习率×0.1)',
+      'scheduler',
+      []
+    ),
+
+    N('=== 阶段三: 构建数据集 ===', 'main', null, null, null, '----------- 数据加载 -----------', null, null),
+    N('build_dataset(image_set, args)', 'data', 'datasets/__init__.py', 18,
+      'image_set: "train"/"val", args: 含dataset_file/coco_path/masks/fix_size等',
+      '根据dataset_file分发到coco/coco_panoptic/o365/vanke的build函数',
+      'Dataset',
+      [
+        N('datasets/coco.py::build(image_set, args)', 'data', 'datasets/coco.py', 612,
+          'image_set, args',
+          '路由到COCO: 构建train2017/val2017路径→创建transforms→实例化CocoDetection',
+          'CocoDetection dataset',
+          [
+            N('get_aux_target_hacks_list(image_set, args)', 'data', 'datasets/coco.py', 554,
+              'image_set, args (含modelname)',
+              '(仅特定模型) 返回辅助target处理钩子列表: label映射/onehot/box拼接/随机选择等',
+              'list of callable 或 None (dino模型返回None)',
+              null
+            ),
+            N('make_coco_transforms(image_set, fix_size, strong_aug, args)', 'data', 'datasets/coco.py', 454,
+              'image_set, fix_size, strong_aug, args',
+              '构建数据增强流水线: RandomHorizontalFlip → RandomResize/RandomSizeCrop → ToTensor → Normalize → box_xyxy_to_cxcywh',
+              'T.Compose',
+              [
+                N('T.RandomHorizontalFlip(p=0.5)', 'data', 'datasets/transforms.py', null,
+                  'p=0.5',
+                  '随机水平翻转图像和目标框',
+                  'callable',
+                  [
+                    N('hflip(image, target)', 'data', 'datasets/transforms.py', null,
+                      'image: PIL, target: dict',
+                      '调用F.hflip翻转图像, 同时对boxes/masks做水平翻转',
+                      '(image, target)',
+                      null
+                    )
+                  ]
+                ),
+                N('T.RandomSelect(transform1, transform2, p=0.5)', 'data', 'datasets/transforms.py', null,
+                  'transform1, transform2, p=0.5',
+                  '以概率p选择执行transform1或transform2',
+                  'callable',
+                  null
+                ),
+                N('T.RandomResize(sizes, max_size)', 'data', 'datasets/transforms.py', null,
+                  'sizes: [480,512,...,800], max_size=1333',
+                  '随机选择一个尺度，等比例缩放图像，同时更新boxes/masks/size',
+                  'callable',
+                  [
+                    N('resize(image, target, size, max_size)', 'data', 'datasets/transforms.py', null,
+                      'image: PIL, target: dict, size: int, max_size: int',
+                      '调用F.resize缩放，按比例调整boxes，optionally resize masks',
+                      '(image, target)',
+                      null
+                    )
+                  ]
+                ),
+                N('T.RandomSizeCrop(min_size, max_size)', 'data', 'datasets/transforms.py', null,
+                  'min_size=384, max_size=600',
+                  '随机裁剪→区域满足尺寸约束',
+                  'callable',
+                  [
+                    N('crop(image, target, region)', 'data', 'datasets/transforms.py', null,
+                      'image: PIL, target: dict, region: (i,j,h,w)',
+                      '裁剪图像，更新boxes坐标/clamp/面积/masks/size',
+                      '(image, target)',
+                      null
+                    )
+                  ]
+                ),
+                N('T.ToTensor()', 'data', 'datasets/transforms.py', null,
+                  '无',
+                  'PIL Image → torch.Tensor [0,1]',
+                  'callable',
+                  null
+                ),
+                N('T.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])', 'data', 'datasets/transforms.py', null,
+                  'mean, std: ImageNet统计量',
+                  '归一化图像 → 调用box_xyxy_to_cxcywh将boxes从xyxy转为cxcywh并归一化到[0,1]',
+                  'callable',
+                  [
+                    N('box_xyxy_to_cxcywh(x)', 'util', 'util/box_ops.py', null,
+                      'x: [...,4] (x0,y0,x1,y1)',
+                      '坐标格式转换: xyxy → cxcywh',
+                      'tensor [...,4]',
+                      null
+                    )
+                  ]
+                )
+              ]
+            ),
+            N('CocoDetection.__init__(img_folder, ann_file, transforms, return_masks, aux_target_hacks)', 'data', 'datasets/coco.py', 323,
+              'img_folder, ann_file, transforms: T.Compose, return_masks, aux_target_hacks',
+              '继承torchvision CocoDetection → 创建ConvertCocoPolysToMask → 存储transforms和hacks',
+              'Dataset',
+              [
+                N('ConvertCocoPolysToMask.__init__(return_masks)', 'data', 'datasets/coco.py', 389,
+                  'return_masks: bool',
+                  '创建COCO标注转换器: polygon→mask, xywh→xyxy, 过滤无效框',
+                  'callable',
+                  null
+                ),
+                N('ConvertCocoPolysToMask.__call__(image, target)', 'data', 'datasets/coco.py', 393,
+                  'image: PIL, target: COCO原始标注',
+                  '提取bbox→xywh→xyxy/clamp; 提取labels; 可选mask转换; 过滤无效框',
+                  '(image, target_dict: {boxes, labels, [masks], image_id, orig_size, size})',
+                  [
+                    N('convert_coco_poly_to_mask(segmentations, h, w)', 'data', 'datasets/coco.py', 372,
+                      'segmentations: list of polygons, h, w: int',
+                      'pycocotools.frPyObjects→decode 将多边形分割标注转为二值mask',
+                      'masks: [N, H, W] uint8',
+                      null
+                    )
+                  ]
+                )
+              ]
+            ),
+            N('CocoDetection.__getitem__(idx)', 'data', 'datasets/coco.py', 343,
+              'idx: int',
+              '加载图像→prepare转换标注→应用transforms数据增强→运行aux_target_hacks',
+              '(img: Tensor [3,H,W], target: dict)',
+              null
+            )
+          ]
+        )
+      ]
+    ),
+    N('DataLoader (train/val)', 'data', '(PyTorch) torch.utils.data', null,
+      'dataset, batch_size=2, sampler=DistributedSampler/RandomSampler, collate_fn=utils.collate_fn, num_workers=10',
+      '构建训练/验证数据加载器',
+      'DataLoader',
+      [
+        N('utils.collate_fn(batch)', 'util', 'util/misc.py', null,
+          'batch: list of (img, target)',
+          '将batch图像通过nested_tensor_from_tensor_list打包为NestedTensor (统一尺寸填充)',
+          '(NestedTensor, targets)',
+          [
+            N('nested_tensor_from_tensor_list(tensor_list)', 'util', 'util/misc.py', null,
+              'tensor_list: list of Tensor [3,Hi,Wi]',
+              '计算batch内最大H/W→zero_pad→构造NestedTensor(含binary mask标记padding)',
+              'NestedTensor {tensors: [B,3,maxH,maxW], mask: [B,maxH,maxW]}',
+              null
+            )
+          ]
+        )
+      ]
+    ),
+
+    N('=== 阶段四: 训练循环 ===', 'loop', 'main.py', 270, null, '----------- per-epoch循环 -----------', null, null),
+    N('for epoch in range(start_epoch, epochs):', 'loop', 'main.py', 270,
+      'start_epoch, epochs=12',
+      '训练主循环: 每个epoch执行 训练→保存检查点→验证',
+      null,
+      [
+        N('train_one_epoch(model, criterion, data_loader_train, optimizer, device, epoch, clip_max_norm, ...)', 'loop', 'engine.py', 29,
+          'model, criterion, data_loader, optimizer, device, epoch, max_norm=0.1, wo_class_error, lr_scheduler, args, logger, ema_m',
+          '单epoch训练: 遍历所有batch，前向→loss→反向→梯度裁剪→优化器更新→日志',
+          'train_stats: dict (各loss平均值)',
+          [
+            N('=== 每batch迭代 ===', 'loop', 'engine.py', 50, null, '----------- per-batch -----------', null, null),
+            N('model(samples, targets) → DINO.forward()', 'model', 'models/dino/dino.py', 221,
+              'samples: NestedTensor [B,3,H,W], targets: [{labels, boxes}]',
+              'DINO完整前向传播: backbone→多尺度投影→DN准备→Transformer→预测头→DN后处理',
+              'outputs: {pred_logits, pred_boxes, aux_outputs, [interm_outputs, enc_outputs], dn_meta}',
+              [
+                N('backbone(samples) → Joiner.forward(tensor_list)', 'backbone', 'models/dino/backbone.py', 135,
+                  'tensor_list: NestedTensor',
+                  'ResNet/Swin/ConvNeXt → 提取多层特征 → 对每层计算位置编码',
+                  '(features: List[NestedTensor], pos: List[Tensor])',
+                  null
+                ),
+                N('input_proj[l](src) — 逐层特征投影', 'model', 'models/dino/dino.py', 253,
+                  'src: Tensor [B, C, H, W]',
+                  'Conv2d 1×1 (或3×3 stride=2) → GroupNorm → 投影到 hidden_dim=256',
+                  'src: Tensor [B, 256, H, W]',
+                  null
+                ),
+                N('F.interpolate — 额外尺度的mask下采样', 'model', '(PyTorch) torch.nn.functional', null,
+                  'mask[None].float(), size=src.shape[-2:]',
+                  '当num_feature_levels > backbone输出层数时，对mask下采样+额外conv生成新尺度',
+                  null,
+                  null
+                ),
+                N('prepare_for_cdn(dn_args, training, num_queries, num_classes, hidden_dim, label_enc)', 'model', 'models/dino/dn_components.py', 20,
+                  'dn_args=(targets, dn_number=100, label_noise_ratio=0.5, box_noise_scale=0.4), training, num_queries=900, num_classes=91, hidden_dim=256, label_enc: nn.Embedding',
+                  '构造DN(去噪)训练query: 复制GT→加标签噪声(50%概率随机翻转)→加框噪声(随机偏移)→构建attn mask(DN组间隔离, 匹配query看不到DN)',
+                  '(input_query_label: [bs,pad,256], input_query_bbox: [bs,pad,4], attn_mask: [total, total], dn_meta: {pad_size, num_dn_group})',
+                  [
+                    N('label_enc(m) — 标签嵌入', 'model', '(PyTorch) nn.Embedding', null,
+                      'm: [N] 含噪声的标签',
+                      'nn.Embedding查表: 标签ID→256维向量',
+                      'tensor [N, 256]',
+                      null
+                    ),
+                    N('inverse_sigmoid(known_bbox_expand)', 'util', 'util/utils.py', 198,
+                      'x: Tensor',
+                      '反sigmoid变换: log(x/(1-x))→将归一化坐标转为unbounded空间(与模型输出一致)',
+                      'tensor',
+                      null
+                    ),
+                    N('torch.randint_like — 随机标签翻转', 'model', '(PyTorch)', null,
+                      'chosen_indice, 0, num_classes',
+                      '对label_noise_ratio比例的标签随机替换为新类别',
+                      null,
+                      null
+                    ),
+                    N('torch.rand_like — 随机框噪声', 'model', '(PyTorch)', null,
+                      'known_bboxs',
+                      '对bbox添加均匀分布噪声(正样本±scale, 负样本额外+1.0)',
+                      null,
+                      null
+                    )
+                  ]
+                ),
+                N('self.transformer.forward(srcs, masks, refpoint_embed, pos_embeds, tgt, attn_mask)', 'transformer', 'models/dino/deformable_transformer.py', 256,
+                  'srcs: List[B,256,Hi,Wi], masks: List[B,Hi,Wi], refpoint_embed: [B,pad,4](DN), pos_embeds: List[B,256,Hi,Wi], tgt: [B,pad,256](DN), attn_mask: [total,total](DN)',
+                  '可变形Transformer完整流程: 多尺度特征flatten→Encoder→Two-Stage query选择→Decoder→返回多层输出',
+                  '(hs: [n_dec,B,nq,256], references: [n_dec+1,B,nq,4], hs_enc, ref_enc, init_box_proposal)',
+                  [
+                    N('get_valid_ratio(mask) — 计算有效区域比例', 'transformer', 'models/dino/deformable_transformer.py', 238,
+                      'mask: [B,H,W]',
+                      '统计非padding像素占比，返回[valid_ratio_w, valid_ratio_h] 用于归一化参考点',
+                      'valid_ratio: [B, 2]',
+                      null
+                    ),
+                    N('level_embed[lvl] — 多尺度层级嵌入', 'transformer', 'models/dino/deformable_transformer.py', 280,
+                      'lvl: int 0..3',
+                      '将可学习的层级嵌入加到位置编码上 (区分不同分辨率特征层)',
+                      null,
+                      null
+                    ),
+                    N('=== Encoder阶段 ===', 'transformer', null, null, null, null, null),
+                    N('TransformerEncoder.forward(src_flatten, pos, spatial_shapes, level_start_index, valid_ratios, key_padding_mask)', 'transformer', 'models/dino/deformable_transformer.py', 491,
+                      'src_flatten: [B,ΣH×W,256], pos: [B,ΣH×W,256], spatial_shapes: [4,2], level_start_index: [4], valid_ratios: [B,4,2], key_padding_mask: [B,ΣH×W]',
+                      '6层可变形Transformer Encoder: 每层做多尺度可变形自注意力→FFN',
+                      '(memory: [B,ΣH×W,256], enc_intermediate_output, enc_intermediate_ref)',
+                      [
+                        N('TransformerEncoder.get_reference_points(spatial_shapes, valid_ratios, device)', 'transformer', 'models/dino/deformable_transformer.py', 477,
+                          'spatial_shapes: [4,2], valid_ratios: [B,4,2], device',
+                          '为每个尺度生成归一化的网格参考点坐标 (meshgrid→flatten→除以有效区域)',
+                          'reference_points: [B, ΣH×W, 4, 2]',
+                          null
+                        ),
+                        N('DeformableTransformerEncoderLayer.forward(src, pos, reference_points, spatial_shapes, level_start_index, key_padding_mask)', 'transformer', 'models/dino/deformable_transformer.py', 807,
+                          'src, pos, reference_points, spatial_shapes, level_start_index, key_padding_mask: Optional[Tensor]',
+                          '单层Encoder: MSDeformAttn(可变形自注意力)→Add&Norm→FFN→Add&Norm→可选ChannelAttention',
+                          'src: Tensor [B, ΣH×W, 256]',
+                          [
+                            N('MSDeformAttn.forward(query, reference_points, input_flatten, spatial_shapes, level_start_index, input_padding_mask)', 'transformer', 'models/dino/ops/modules/ms_deform_attn.py', null,
+                              'query: [B,ΣH×W,256], reference_points: [B,ΣH×W,4,2], input_flatten: [B,ΣH×W,256], spatial_shapes: [4,2], level_start_index: [4], input_padding_mask: [B,ΣH×W]',
+                              '可变形注意力: Linear预测采样偏移+注意力权重→CUDA kernel多尺度采样→加权聚合→输出投影',
+                              'output: [B, ΣH×W, 256]',
+                              null
+                            ),
+                            N('DeformableTransformerEncoderLayer.forward_ffn(src)', 'transformer', 'models/dino/deformable_transformer.py', 801,
+                              'src: [B, ΣH×W, 256]',
+                              '标准FFN: Linear(256→2048)→Activation(ReLU)→Dropout→Linear(2048→256)→Dropout→残差→LayerNorm',
+                              'src: Tensor',
+                              null
+                            )
+                          ]
+                        )
+                      ]
+                    ),
+                    N('=== Two-Stage锚框选择 (two_stage_type="standard") ===', 'transformer', null, null, null, null, null),
+                    N('gen_encoder_output_proposals(memory, mask_flatten, spatial_shapes, input_hw)', 'transformer', 'models/dino/utils.py', 15,
+                      'memory: [B,ΣH×W,256], mask_flatten: [B,ΣH×W], spatial_shapes: [4,2], input_hw: None',
+                      '从Encoder memory生成初始proposal: 将空间grid坐标转为归一化坐标→反sigmoid→无效区域mask',
+                      '(output_memory: [B,ΣH×W,256], output_proposals: [B,ΣH×W,4] unsigmoid)',
+                      null
+                    ),
+                    N('enc_output + enc_output_norm + enc_out_class_embed + enc_out_bbox_embed', 'transformer', 'models/dino/deformable_transformer.py', 339,
+                      'output_memory: [B,ΣH×W,256]',
+                      '对Encoder输出做投影+分类→topk选择最高分类分数的k个proposal→gather对应boxes和features',
+                      '(tgt_: 选中的query特征, refpoint_embed_: 选中的anchor坐标unsigmoid, init_box_proposal: sigmoid归一化坐标)',
+                      null
+                    ),
+                    N('=== Decoder阶段 ===', 'transformer', null, null, null, null, null),
+                    N('TransformerDecoder.forward(tgt, memory, tgt_mask, memory_key_padding_mask, pos, refpoints_unsigmoid, level_start_index, spatial_shapes, valid_ratios)', 'transformer', 'models/dino/deformable_transformer.py', 649,
+                      'tgt: [nq,B,256], memory: [ΣH×W,B,256], pos: [ΣH×W,B,256], refpoints_unsigmoid: [nq,B,4], valid_ratios, spatial_shapes, tgt_mask: DN attn mask',
+                      '6层可变形Transformer Decoder: 每层 Self-Attn→Cross-Attn(MSDeformAttn)→FFN→BBox Refinement→可选topk缩减',
+                      '([hs: n_dec×[B,nq,256]], [references: n_dec+1×[B,nq,4]])',
+                      [
+                        N('gen_sineembed_for_position(reference_points_input)', 'transformer', 'models/dino/utils.py', 138,
+                          'pos_tensor: [nq, B, 4] (cx,cy,w,h)',
+                          '对参考点坐标生成正弦位置编码 (类似Transformer PE但用于2D坐标, 4D输入输出512维)',
+                          'sine_embed: [nq, B, 512]',
+                          null
+                        ),
+                        N('MLP.ref_point_head(query_sine_embed)', 'transformer', 'models/dino/utils.py', 107,
+                          'query_sine_embed: [nq, B, 512]',
+                          '条件查询位置编码: MLP(512→256→256) 从参考点sine编码生成空间查询位置',
+                          'raw_query_pos: [nq, B, 256]',
+                          null
+                        ),
+                        N('DeformableTransformerDecoderLayer.forward(tgt, tgt_query_pos, tgt_query_sine_embed, tgt_reference_points, memory, memory_pos, ...)', 'transformer', 'models/dino/deformable_transformer.py', 958,
+                          'tgt: [nq,B,256], tgt_query_pos: [nq,B,256], tgt_query_sine_embed, tgt_reference_points: [nq,B,4,4], memory: [ΣH×W,B,256], memory_pos, memory_key_padding_mask, memory_spatial_shapes, self_attn_mask, ...',
+                          '单层Decoder (按module_seq执行): SA→CA→FFN',
+                          'tgt: [nq, B, 256]',
+                          [
+                            N('DeformableTransformerDecoderLayer.forward_sa(tgt, tgt_query_pos, ...)', 'transformer', 'models/dino/deformable_transformer.py', 879,
+                              'tgt: [nq,B,256], tgt_query_pos: [nq,B,256], self_attn_mask',
+                              '自注意力: decoder_sa_type="sa"→标准MHA(Q=K=tgt+pos); ="ca_label"→K=V=类别嵌入; ="ca_content"→MSDeformAttn',
+                              'tgt: [nq, B, 256]',
+                              [
+                                N('nn.MultiheadAttention.forward(q, k, v, attn_mask)', 'transformer', 'models/dino/attention.py', 59,
+                                  'q, k, v: [nq,B,256], attn_mask: [nq,nq]',
+                                  '标准多头缩放点积注意力: QK^T/√d→softmax→×V→输出投影',
+                                  '(attn_output, attn_weights)',
+                                  null
+                                )
+                              ]
+                            ),
+                            N('DeformableTransformerDecoderLayer.forward_ca(tgt, tgt_query_pos, tgt_reference_points, memory, memory_pos, memory_spatial_shapes, ...)', 'transformer', 'models/dino/deformable_transformer.py', 922,
+                              'tgt: [nq,B,256], tgt_query_pos, tgt_reference_points: [nq,B,4,4], memory: [ΣH×W,B,256], memory_pos, memory_spatial_shapes',
+                              '交叉注意力: MSDeformAttn(query+pos, 参考点, memory, 空间形状) →残差→Norm',
+                              'tgt: [nq, B, 256]',
+                              [
+                                N('MSDeformAttn.forward (cross-attention)', 'transformer', 'models/dino/ops/modules/ms_deform_attn.py', null,
+                                  'query: [B,nq,256], reference_points: [B,nq,4,4], input_flatten: [B,ΣH×W,256], spatial_shapes, level_start_index',
+                                  'query通过Linear预测采样偏移+注意力权重→从多尺度memory的特征点采样→加权聚合',
+                                  'output: [B, nq, 256]',
+                                  null
+                                )
+                              ]
+                            ),
+                            N('DeformableTransformerDecoderLayer.forward_ffn(tgt)', 'transformer', 'models/dino/deformable_transformer.py', 873,
+                              'tgt: [nq, B, 256]',
+                              '标准FFN: Linear(256→2048)→Activation→Dropout→Linear(2048→256)→Dropout→残差→LayerNorm',
+                              'tgt: Tensor',
+                              null
+                            )
+                          ]
+                        ),
+                        N('self.bbox_embed[layer_id](output) + inverse_sigmoid→sigmoid (Box Refinement)', 'transformer', 'models/dino/deformable_transformer.py', 732,
+                          'output: [nq,B,256]',
+                          'Decoder每层后: MLP预测框偏移→加到当前参考点(unsigmoid空间)→sigmoid→得到新的归一化参考点',
+                          'new_reference_points: [nq, B, 4]',
+                          null
+                        ),
+                        N('topk class排序 (可选query缩减)', 'transformer', 'models/dino/deformable_transformer.py', 742,
+                          'class_embed[layer_id](output): [nq,B,91]',
+                          '当dec_layer_number设置时: 按分类分数topk选择下层保留的query数',
+                          null,
+                          null
+                        )
+                      ]
+                    )
+                  ]
+                ),
+                N('self.bbox_embed / self.class_embed → 逐层预测', 'model', 'models/dino/dino.py', 287,
+                  'hs: [n_dec, B, nq, 256]',
+                  '对每层decoder输出: bbox_embed(MLP)预测框偏移→加参考点→sigmoid; class_embed(Linear)预测类别logits',
+                  'outputs_coord_list: [n_dec, B, nq, 4], outputs_class: [n_dec, B, nq, 91]',
+                  null
+                ),
+                N('dn_post_process(outputs_class, outputs_coord_list, dn_meta, aux_loss, _set_aux_loss)', 'model', 'models/dino/dn_components.py', 140,
+                  'outputs_class: [n_dec,B,total,91], outputs_coord_list: [n_dec,B,total,4], dn_meta: {pad_size, num_dn_group}, aux_loss',
+                  '将DN部分(pad_size)从输出中分离出去存储到dn_meta，仅保留匹配部分继续后续loss计算',
+                  '(outputs_class_trimmed: [n_dec,B,nq,91], outputs_coord_trimmed: [n_dec,B,nq,4])',
+                  null
+                ),
+                N('返回 out: {pred_logits, pred_boxes, aux_outputs, [interm_outputs, enc_outputs], dn_meta}', 'model', 'models/dino/dino.py', 301,
+                  null,
+                  '组装所有预测输出: 最后一层为主输出，前n-1层为aux_outputs (辅助loss)',
+                  'out: dict',
+                  null
+                )
+              ]
+            ),
+            N('criterion(outputs, targets) → SetCriterion.forward()', 'loss', 'models/dino/dino.py', 485,
+              'outputs: {pred_logits, pred_boxes, aux_outputs, dn_meta, [interm_outputs, enc_outputs]}, targets: [{labels, boxes}]',
+              '计算全部损失: 匈牙利匹配→分类focal loss+框L1 loss+GIoU loss+cardinality error→DN损失→辅助层损失→中间层损失→Encoder层损失',
+              'losses: dict (所有loss项)',
+              [
+                N('HungarianMatcher.forward(outputs_without_aux, targets)', 'loss', 'models/dino/matcher.py', 48,
+                  'outputs: {pred_logits, pred_boxes}, targets: [{labels, boxes}]',
+                  '计算匈牙利最优匹配: focal cost + L1 box cost + GIoU cost → linear_sum_assignment',
+                  'indices: [(pred_idx, tgt_idx) per image]',
+                  null
+                ),
+                N('SetCriterion.loss_labels(outputs, targets, indices, num_boxes)', 'loss', 'models/dino/dino.py', 366,
+                  'outputs: {pred_logits}, targets, indices, num_boxes: int',
+                  '分类损失: 构造onehot目标→sigmoid_focal_loss (Binary Focal Loss, α=0.25, γ=2)',
+                  '{loss_ce, class_error}',
+                  [
+                    N('sigmoid_focal_loss(inputs, targets, num_boxes, alpha, gamma)', 'loss', 'models/dino/utils.py', 79,
+                      'inputs: logits, targets: onehot, num_boxes: int, alpha=0.25, gamma=2',
+                      'Focal Loss: -α_t * (1-p_t)^γ * log(p_t), p_t=sigmoid(inputs)*targets+(1-sigmoid)*(1-targets)',
+                      'scalar loss',
+                      null
+                    )
+                  ]
+                ),
+                N('SetCriterion.loss_boxes(outputs, targets, indices, num_boxes)', 'loss', 'models/dino/dino.py', 406,
+                  'outputs: {pred_boxes}, targets, indices, num_boxes',
+                  '框回归损失: L1 Loss + GIoU Loss (广义IoU)',
+                  '{loss_bbox, loss_giou, loss_xy, loss_hw}',
+                  [
+                    N('F.l1_loss(src_boxes, target_boxes)', 'loss', '(PyTorch)', null, null, 'L1损失', null, null),
+                    N('generalized_box_iou(boxes1, boxes2)', 'util', 'util/box_ops.py', null,
+                      'boxes1: [N,4] xyxy, boxes2: [N,4] xyxy (成对)',
+                      'GIoU = IoU - |外接矩形\\并集|/|外接矩形|, 更好的框重叠度量',
+                      'giou: [N]',
+                      null
+                    )
+                  ]
+                ),
+                N('SetCriterion.loss_cardinality(outputs, targets, indices, num_boxes)', 'loss', 'models/dino/dino.py', 393,
+                  'outputs: {pred_logits}, targets, indices, num_boxes',
+                  '计数误差: |预测非空框数 - GT框数| (仅用于日志，无梯度)',
+                  '{cardinality_error}',
+                  null
+                ),
+                N('prep_for_dn(dn_meta) → DN损失计算', 'loss', 'models/dino/dino.py', 641,
+                  'dn_meta: {pad_size, num_dn_group, output_known_lbs_bboxes}',
+                  '提取DN输出，构建正样本(DN+)和负样本(DN-)的索引 → 计算DN的label/box/giou损失',
+                  'DN losses (前缀_dn)',
+                  null
+                ),
+                N('aux_outputs损失 (中间decoder层)', 'loss', 'models/dino/dino.py', 558,
+                  'outputs["aux_outputs"]: list of {pred_logits, pred_boxes}',
+                  '对每层中间输出重复匈牙利匹配+计算label/box损失 (不含mask)',
+                  'aux losses (后缀_{idx} 和 _dn_{idx})',
+                  null
+                ),
+                N('interm_outputs / enc_outputs 损失', 'loss', 'models/dino/dino.py', 600,
+                  'interm_outputs/enc_outputs: {pred_logits, pred_boxes}',
+                  '对Two-Stage的中间输出和Encoder输出计算额外损失',
+                  'interm/enc losses',
+                  null
+                )
+              ]
+            ),
+            N('losses.backward() → optimizer.step() → ema_m.update(model)', 'loop', 'engine.py', 93,
+              null,
+              '反向传播→梯度裁剪(max_norm=0.1)→AdamW更新→EMA模型更新(可选)',
+              null,
+              null
+            ),
+            N('MetricLogger.update(loss=..., class_error=..., lr=...)', 'util', 'util/misc.py', null,
+              '各种指标值',
+              'SmoothedValue更新滑动窗口统计→每print_freq=10步打印日志',
+              null,
+              null
+            )
+          ]
+        ),
+        N('lr_scheduler.step()', 'loop', 'main.py', 281,
+          '无',
+          '学习率调度器步进 (StepLR: 每lr_drop=11 epoch ×0.1)',
+          '无',
+          null
+        ),
+        N('save checkpoint → checkpoint.pth + checkpoint{epoch}.pth', 'loop', 'main.py', 282,
+          'weights: {model, optimizer, lr_scheduler, epoch, args, [ema_model]}',
+          '保存当前模型权重/优化器状态/调度器状态/epoch/args',
+          '文件写入磁盘',
+          [
+            N('utils.save_on_master(weights, path)', 'util', 'util/misc.py', null,
+              '*args, **kwargs',
+              '仅在主进程(rank==0)调用torch.save保存',
+              '无',
+              null
+            )
+          ]
+        ),
+        N('evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir, ...)', 'eval', 'engine.py', 132,
+          'model, criterion, postprocessors, data_loader, base_ds (COCO API), device, output_dir, wo_class_error, args, logger',
+          '验证评估: 遍历验证集→前向推理→后处理→COCO评估→计算mAP',
+          '(stats: dict, coco_evaluator)',
+          [
+            N('model(samples) → DINO.forward(samples, targets=None)', 'model', 'models/dino/dino.py', 221,
+              'samples: NestedTensor (无targets, DN跳过)',
+              '推理模式: 与训练相同但跳过DN准备和DN后处理',
+              'outputs: {pred_logits, pred_boxes, ...}',
+              null
+            ),
+            N('criterion(outputs, targets) → 仅计算loss用于日志', 'loss', 'models/dino/dino.py', 485,
+              'outputs, targets',
+              '验证时计算loss (仅用于日志记录，不反向传播)',
+              'losses',
+              null
+            ),
+            N('postprocessors["bbox"](outputs, orig_target_sizes) → PostProcess.forward()', 'eval', 'models/dino/dino.py', 658,
+              'outputs: {pred_logits, pred_boxes}, target_sizes: [B,2] (原图H,W), not_to_xyxy=False',
+              '后处理: sigmoid→topk(取top300)→cxcywh→xyxy→×原图尺寸→(可选NMS)',
+              'results: [{"scores":[300], "labels":[300], "boxes":[300,4]}] × B',
+              [
+                N('torch.topk(prob.view(B,-1), num_select=300)', 'eval', '(PyTorch)', null,
+                  'prob: [B, nq*91], num_select=300',
+                  '选取top300最高分类分数的预测',
+                  'topk_values, topk_indexes',
+                  null
+                ),
+                N('box_cxcywh_to_xyxy(out_bbox)', 'util', 'util/box_ops.py', null,
+                  'out_bbox: [B,nq,4] (cx,cy,w,h归一化)',
+                  '坐标格式转换: cxcywh→xyxy',
+                  'boxes: [B,nq,4]',
+                  null
+                ),
+                N('torchvision.ops.boxes.nms (可选)', 'eval', '(PyTorch) torchvision', null,
+                  'boxes, scores, iou_threshold',
+                  '当nms_iou_threshold>0时执行NMS去重',
+                  'keep indices',
+                  null
+                )
+              ]
+            ),
+            N('CocoEvaluator.update(res) → accumulate() → summarize()', 'eval', 'datasets/coco_eval.py', null,
+              'res: {image_id: {scores, labels, boxes}}',
+              'COCO评估器: 累积所有预测→计算AP/AP50/AP75/APs/APm/APl等指标',
+              '无 (结果存入coco_evaluator.coco_eval)',
+              null
+            ),
+            N('BestMetricHolder.update(map_regular, epoch)', 'util', 'util/utils.py', 433,
+              'new_res: float (mAP), epoch: int, is_ema: bool',
+              '记录最佳mAP: 超过历史最佳→保存checkpoint_best_regular.pth',
+              'is_best: bool',
+              [
+                N('BestMetricSingle.update(new_res, ep)', 'util', 'util/utils.py', 398,
+                  'new_res: float, ep: int',
+                  '比较new_res与best_res (better="large"则new>old为更好)',
+                  'is_better: bool',
+                  null
+                )
+              ]
+            )
+          ]
+        )
+      ]
+    )
+  ]
+);
+
+// ============================================================
+// Render tree
+// ============================================================
+let nodeIdCounter = 0;
+let nodeMap = {}; // id -> {nodeData, liElement}
+
+function createTreeHTML(node, depth) {
+  if (!node) return '';
+  const id = ++nodeIdCounter;
+  const hasChildren = node.children && node.children.length > 0;
+  const catClass = 'cat-' + (node.cat || 'util');
+
+  // Build inline marker chips
+  let chips = '';
+  if (node.file) {
+    const locStr = node.line ? `${node.file}:${node.line}` : node.file;
+    chips += `<span class="loc">📍 ${locStr}</span>`;
+  }
+  if (node.returns) {
+    chips += `<span class="return">→ ${node.returns.length > 40 ? node.returns.slice(0,40)+'...' : node.returns}</span>`;
+  }
+  if (node.params) {
+    const shortParams = node.params.length > 60 ? node.params.slice(0,60)+'...' : node.params;
+    chips += `<span class="params">⚙ ${shortParams}</span>`;
+  }
+
+  let html = `<li data-node-id="${id}">`;
+  if (hasChildren) {
+    html += `<button class="toggle-btn" onclick="toggleNode(this)" title="展开/折叠">▸</button>`;
+  } else {
+    html += `<span class="toggle-btn empty"></span>`;
+  }
+
+  html += `<div class="node ${catClass}" onclick="showDetail(${id})"
+    data-func="${escapeHtml(node.funcName)}"
+    data-file="${escapeHtml(node.file||'')}"
+    data-line="${node.line||''}"
+    data-params="${escapeHtml(node.params||'')}"
+    data-desc="${escapeHtml(node.desc||'')}"
+    data-return="${escapeHtml(node.returns||'')}"
+  >
+    <span class="func-name">${node.funcName}</span>${chips}
+    ${node.desc && node.desc.length < 40 ? `<span class="desc"> — ${node.desc}</span>` : ''}
+  </div>`;
+
+  if (hasChildren) {
+    html += '<ul>';
+    for (const child of node.children) {
+      html += createTreeHTML(child, depth + 1);
+    }
+    html += '</ul>';
+  }
+
+  html += '</li>';
+
+  // Store in map
+  nodeMap[id] = {nodeData: node};
+  return html;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+// ============================================================
+// Initialize
+// ============================================================
+document.getElementById('root-tree').innerHTML = createTreeHTML(TREE, 0);
+document.getElementById('stats').textContent = `共 ${nodeIdCounter} 个节点`;
+
+// Initially collapse deep levels
+collapseAll();
+
+function toggleNode(btn) {
+  const li = btn.parentElement;
+  const ul = li.querySelector(':scope > ul');
+  if (!ul) return;
+  const isCollapsed = ul.style.display === 'none';
+  ul.style.display = isCollapsed ? '' : 'none';
+  btn.textContent = isCollapsed ? '▾' : '▸';
+}
+
+function expandAll() {
+  document.querySelectorAll('.tree ul').forEach(ul => ul.style.display = '');
+  document.querySelectorAll('.toggle-btn:not(.empty)').forEach(btn => btn.textContent = '▾');
+}
+
+function collapseAll() {
+  document.querySelectorAll('#root-tree > li > ul').forEach(ul => {
+    // collapse only top-level ul and below
+  });
+  document.querySelectorAll('.tree ul').forEach(ul => ul.style.display = 'none');
+  document.querySelectorAll('.toggle-btn:not(.empty)').forEach(btn => btn.textContent = '▸');
+  // But show root
+  const rootUl = document.querySelector('#root-tree > li > ul');
+  if (rootUl) rootUl.style.display = '';
+  document.querySelector('#root-tree > li > .toggle-btn') && (document.querySelector('#root-tree > li > .toggle-btn').textContent = '▾');
+}
+
+function expandToLevel(maxDepth) {
+  // First collapse all
+  document.querySelectorAll('.tree ul').forEach(ul => ul.style.display = 'none');
+  document.querySelectorAll('.toggle-btn:not(.empty)').forEach(btn => btn.textContent = '▸');
+
+  // Then expand to specified depth
+  function expandDepth(li, currentDepth) {
+    const ul = li.querySelector(':scope > ul');
+    const btn = li.querySelector(':scope > .toggle-btn');
+    if (ul && currentDepth < maxDepth) {
+      ul.style.display = '';
+      if (btn) btn.textContent = '▾';
+      ul.querySelectorAll(':scope > li').forEach(childLi => expandDepth(childLi, currentDepth + 1));
+    }
+  }
+  document.querySelectorAll('#root-tree > li').forEach(rootLi => expandDepth(rootLi, 0));
+
+  // Ensure root is visible
+  const rootUl = document.querySelector('#root-tree > li > ul');
+  if (rootUl) {
+    rootUl.style.display = '';
+    const rootBtn = document.querySelector('#root-tree > li > .toggle-btn');
+    if (rootBtn) rootBtn.textContent = '▾';
+    rootUl.querySelectorAll(':scope > li').forEach(li => expandDepth(li, 1));
+  }
+}
+
+function showDetail(id) {
+  const entry = nodeMap[id];
+  if (!entry) return;
+  const n = entry.nodeData;
+
+  document.getElementById('detail-title').textContent = n.funcName;
+  let body = '';
+  if (n.file) {
+    const loc = n.line ? `${n.file}:${n.line}` : n.file;
+    body += `<div class="field"><div class="field-label">📍 文件位置</div><div class="field-value"><code>${escapeHtml(loc)}</code></div></div>`;
+  }
+  if (n.desc) {
+    body += `<div class="field"><div class="field-label">📝 功能描述</div><div class="field-value">${escapeHtml(n.desc)}</div></div>`;
+  }
+  if (n.params) {
+    body += `<div class="field"><div class="field-label">⚙ 参数</div><div class="field-value">${escapeHtml(n.params)}</div></div>`;
+  }
+  if (n.returns) {
+    body += `<div class="field"><div class="field-label">📤 返回值</div><div class="field-value">${escapeHtml(n.returns)}</div></div>`;
+  }
+  if (n.children && n.children.length > 0) {
+    body += `<div class="field"><div class="field-label">🔗 子调用</div><div class="field-value">${n.children.length} 个函数</div></div>`;
+  }
+  body += `<div class="field"><div class="field-label">🏷 分类</div><div class="field-value">${escapeHtml(n.cat)}</div></div>`;
+
+  document.getElementById('detail-body').innerHTML = body;
+  document.getElementById('detail').classList.add('show');
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeDetail() {
+  document.getElementById('detail').classList.remove('show');
+  document.getElementById('overlay').classList.remove('show');
+}
+
+// ============================================================
+// Search
+// ============================================================
+let searchResults = [];
+let currentResultIdx = -1;
+
+function doSearch() {
+  // Clear previous highlights
+  document.querySelectorAll('.node.highlight').forEach(n => n.classList.remove('highlight'));
+  document.querySelectorAll('.node.pulse').forEach(n => n.classList.remove('pulse'));
+  searchResults = [];
+  currentResultIdx = -1;
+
+  const query = document.getElementById('search').value.trim().toLowerCase();
+  if (!query) {
+    document.getElementById('stats').textContent = `共 ${nodeIdCounter} 个节点`;
+    return;
+  }
+
+  // Search all nodes
+  for (const [id, entry] of Object.entries(nodeMap)) {
+    const n = entry.nodeData;
+    const searchStr = [
+      n.funcName, n.file||'', n.params||'', n.desc||'', n.returns||''
+    ].join(' ').toLowerCase();
+
+    if (searchStr.includes(query)) {
+      searchResults.push(parseInt(id));
+    }
+  }
+
+  document.getElementById('stats').textContent = `找到 ${searchResults.length} 个匹配节点 (共 ${nodeIdCounter} 个)`;
+
+  if (searchResults.length > 0) {
+    // Expand all ancestors of all matches
+    searchResults.forEach(id => {
+      const li = document.querySelector(`li[data-node-id="${id}"]`);
+      if (li) {
+        // Walk up and expand all parent <ul>
+        let el = li.parentElement;
+        while (el) {
+          if (el.tagName === 'UL') {
+            el.style.display = '';
+            // Update toggle button
+            const parentLi = el.parentElement;
+            if (parentLi && parentLi.tagName === 'LI') {
+              const btn = parentLi.querySelector(':scope > .toggle-btn');
+              if (btn && !btn.classList.contains('empty')) btn.textContent = '▾';
+            }
+          }
+          el = el.parentElement;
+        }
+        // Highlight
+        const node = li.querySelector(':scope > .node');
+        if (node) node.classList.add('highlight');
+      }
+    });
+
+    // Scroll to first match
+    const firstLi = document.querySelector(`li[data-node-id="${searchResults[0]}"]`);
+    if (firstLi) {
+      const node = firstLi.querySelector(':scope > .node');
+      if (node) {
+        node.classList.add('pulse');
+        node.scrollIntoView({behavior:'smooth',block:'center'});
+      }
+    }
+  }
+}
+
+function clearSearch() {
+  document.getElementById('search').value = '';
+  document.querySelectorAll('.node.highlight').forEach(n => n.classList.remove('highlight'));
+  document.querySelectorAll('.node.pulse').forEach(n => n.classList.remove('pulse'));
+  document.getElementById('stats').textContent = `共 ${nodeIdCounter} 个节点`;
+  searchResults = [];
+  currentResultIdx = -1;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeDetail();
+    clearSearch();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    e.preventDefault();
+    document.getElementById('search').focus();
+  }
+});
+
+// Initial expand: show first 3 levels
+document.addEventListener('DOMContentLoaded', function() {
+  expandToLevel(3);
+  document.getElementById('stats').textContent = `共 ${nodeIdCounter} 个节点 (已展开3层)`;
+});
+</script>
+
+</body>
+</html>

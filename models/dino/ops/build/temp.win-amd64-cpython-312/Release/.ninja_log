@@ -1,0 +1,7 @@
+# ninja log v6
+10	3603	8057186403393791	D:/files/MODEL/transformer-detection/DINO-main/models/dino/ops/build/temp.win-amd64-cpython-312/Release/files/MODEL/transformer-detection/DINO-main/models/dino/ops/src/cpu/ms_deform_attn_cpu.obj	97b8a2e183276995
+19	8991	8057186403483766	D:/files/MODEL/transformer-detection/DINO-main/models/dino/ops/build/temp.win-amd64-cpython-312/Release/files/MODEL/transformer-detection/DINO-main/models/dino/ops/src/vision.obj	776ce115c42eece4
+13	13042	8057186403433792	D:/files/MODEL/transformer-detection/DINO-main/models/dino/ops/build/temp.win-amd64-cpython-312/Release/files/MODEL/transformer-detection/DINO-main/models/dino/ops/src/cuda/ms_deform_attn_cuda.obj	4cdb1eb73fcbe92
+80	3784	8057186549243026	D:/files/MODEL/transformer-detection/DINO-main/models/dino/ops/build/temp.win-amd64-cpython-312/Release/files/MODEL/transformer-detection/DINO-main/models/dino/ops/src/cpu/ms_deform_attn_cpu.obj	b1a0eebc0eb06790
+89	8933	8057186549333024	D:/files/MODEL/transformer-detection/DINO-main/models/dino/ops/build/temp.win-amd64-cpython-312/Release/files/MODEL/transformer-detection/DINO-main/models/dino/ops/src/vision.obj	82decfd02e6e25b8
+85	12369	8057186549283023	D:/files/MODEL/transformer-detection/DINO-main/models/dino/ops/build/temp.win-amd64-cpython-312/Release/files/MODEL/transformer-detection/DINO-main/models/dino/ops/src/cuda/ms_deform_attn_cuda.obj	2f0cb1497019ace4
