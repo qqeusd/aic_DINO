@@ -100,8 +100,16 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         # TensorBoard logging (per step)
         if tb_logger is not None and utils.is_main_process():
             global_step = epoch * len(data_loader) + _cnt
-            tb_logger.log_scalar('train/loss_total', loss_value, global_step)
-            tb_logger.log_losses(loss_dict_reduced_scaled, global_step, prefix='train')
+            # Log smoothed (EMA) loss for clean curves
+            smoothed_loss = metric_logger.meters['loss'].global_avg
+            tb_logger.log_scalar('train/loss_total_smooth', smoothed_loss, global_step)
+            tb_logger.log_scalar('train/loss_total_raw', loss_value, global_step)
+            if 'loss_ce' in metric_logger.meters:
+                tb_logger.log_scalar('train/loss_ce_smooth', metric_logger.meters['loss_ce'].global_avg, global_step)
+            if 'loss_bbox' in metric_logger.meters:
+                tb_logger.log_scalar('train/loss_bbox_smooth', metric_logger.meters['loss_bbox'].global_avg, global_step)
+            if 'loss_giou' in metric_logger.meters:
+                tb_logger.log_scalar('train/loss_giou_smooth', metric_logger.meters['loss_giou'].global_avg, global_step)
             tb_logger.log_lr(optimizer.param_groups[0]["lr"], global_step)
 
     if getattr(criterion, 'loss_weight_decay', False):
