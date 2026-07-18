@@ -1,13 +1,13 @@
 # RefCOCO fine-tuning config for visual grounding (Swin-B backbone)
 # Pretrained weight: groundingdino_swinb_cogcoor.pth
 
-data_aug_scales = [384, 480, 576, 640]
-data_aug_max_size = 800
-data_aug_scales2_resize = [300, 400, 500]
-data_aug_scales2_crop = [300, 480]
+data_aug_scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+data_aug_max_size = 1333
+data_aug_scales2_resize = [400, 500, 600]
+data_aug_scales2_crop = [384, 600]
 data_aug_scale_overlap = None
 
-batch_size = 1                   # tight memory budget
+batch_size = 1                   # Swin-B with ~10GB free per GPU
 modelname = 'groundingdino'
 backbone = 'swin_B_384_22k'
 position_embedding = 'sine'
@@ -56,7 +56,7 @@ sub_sentence_present = True
 max_labels = 20
 lr = 0.00005                                   # lower LR for Swin-B fine-tuning
 backbone_freeze_keywords = None
-freeze_keywords = ['bert']
+freeze_keywords = None
 lr_backbone = 5e-06
 lr_backbone_names = ['backbone.0']
 lr_linear_proj_mult = 1e-05
