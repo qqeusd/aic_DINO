@@ -7,7 +7,7 @@ data_aug_scales2_resize = [400, 500, 600]
 data_aug_scales2_crop = [384, 600]
 data_aug_scale_overlap = None
 
-batch_size = 1                   # Swin-B with ~10GB free per GPU
+batch_size = 2                   # full 32GB available
 modelname = 'groundingdino'
 backbone = 'swin_B_384_22k'
 position_embedding = 'sine'
