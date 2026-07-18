@@ -1,0 +1,27 @@
+{
+  "train": [
+    {
+      "root": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/train2014",
+      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/refcocog/refcocog_train_odvg.jsonl",
+      "dataset_mode": "odvg"
+    },
+    {
+      "root": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/train2014",
+      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/refcoco/refcoco_train_odvg.jsonl",
+      "dataset_mode": "odvg"
+    },
+    {
+      "root": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/train2014",
+      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/refcoco+/refcoco+_train_odvg.jsonl",
+      "dataset_mode": "odvg"
+    }
+  ],
+  "val": [
+    {
+      "root": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/val2014",
+      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/annotations/instances_val2014_5k.json",
+      "label_map": null,
+      "dataset_mode": "coco"
+    }
+  ]
+}
