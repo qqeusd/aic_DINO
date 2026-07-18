@@ -202,7 +202,8 @@ def main(args):
         data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                     collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
-    data_loader_val = DataLoader(dataset_val, 4, sampler=sampler_val,
+    val_batch_size = min(args.batch_size * 2, 4)  # smaller val batch to avoid OOM
+    data_loader_val = DataLoader(dataset_val, val_batch_size, sampler=sampler_val,
                                  drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
     if args.onecyclelr:
