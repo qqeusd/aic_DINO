@@ -7,7 +7,7 @@ data_aug_scales2_resize = [400, 500, 600]
 data_aug_scales2_crop = [384, 600]
 data_aug_scale_overlap = None
 
-batch_size = 1                   # OOM killer on CPU RAM with bs=2
+batch_size = 4                   # 10GB used at bs=1, 32GB total, room for bs=4
 modelname = 'groundingdino'
 backbone = 'swin_B_384_22k'
 position_embedding = 'sine'
