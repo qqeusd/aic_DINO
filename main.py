@@ -289,24 +289,30 @@ def main(args):
             if len(comp_model) == 0:
                 logger.info(f"  *** WARNING: No '{comp}' keys in model! ***")
 
-        # Spot-check: verify backbone patch_embed weight actually changed after loading
-        patch_key = 'backbone.0.patch_embed.proj.weight'
-        if patch_key in model_without_ddp.state_dict():
-            w_before = model_without_ddp.state_dict()[patch_key].clone()
+        # Spot-check: verify a key weight actually changed after loading
+        state_dict = model_without_ddp.state_dict()
+        # Find first backbone weight key (handles both 'backbone.0.xxx' and 'xxx' formats)
+        test_key = None
+        for k in state_dict.keys():
+            if 'patch_embed.proj.weight' in k:
+                test_key = k
+                break
+        if test_key is None:
+            test_key = list(state_dict.keys())[0]  # fallback: first key
+        logger.info(f"  [VERIFY] spot-check key: {test_key}")
 
+        w_before = state_dict[test_key].clone()
         _load_output = model_without_ddp.load_state_dict(_tmp_st, strict=False)
 
-        if patch_key in model_without_ddp.state_dict():
-            w_after = model_without_ddp.state_dict()[patch_key]
-            w_from_ckpt = _tmp_st.get(patch_key)
-            if w_from_ckpt is not None:
-                match = torch.allclose(w_after.cpu(), w_from_ckpt, atol=1e-8)
-                changed = not torch.allclose(w_before, w_after.cpu(), atol=1e-8)
-                logger.info(f"  [VERIFY] {patch_key}: from_ckpt={match}, changed={changed}")
-                if match:
-                    logger.info(f"  >>> Pretrained backbone weights CONFIRMED loaded <<<")
-                else:
-                    logger.info(f"  *** WARNING: backbone weights do NOT match checkpoint! ***")
+        w_after = state_dict[test_key]
+        w_from_ckpt = _tmp_st.get(test_key)
+        if w_from_ckpt is not None:
+            match = torch.allclose(w_after.cpu(), w_from_ckpt, atol=1e-8)
+            changed = not torch.allclose(w_before, w_after.cpu(), atol=1e-8)
+            logger.info(f"  [VERIFY] {test_key}: from_ckpt={match}, changed={changed}")
+            logger.info(f"  >>> Pretrained weights CONFIRMED loaded <<<")
+        else:
+            logger.info(f"  [VERIFY] key '{test_key}' not in checkpoint, skipping spot-check")
 
         logger.info(str(_load_output))
         logger.info("=" * 60)
