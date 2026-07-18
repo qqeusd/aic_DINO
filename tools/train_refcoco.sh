@@ -57,6 +57,6 @@ CUDA_VISIBLE_DEVICES=${GPU_IDS} python -m torch.distributed.launch \
     --datasets ${DATASETS} \
     --pretrain_model_path "${PRETRAIN_MODEL}" \
     --amp \
-    --num_workers 4
+    --num_workers 2
 
 echo "Training complete. Checkpoints saved to ${OUTPUT_DIR}"
