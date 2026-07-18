@@ -21,12 +21,13 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-import groundingdino.datasets.transforms as T
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import datasets.transforms as T
 from datasets.odvg import ODVGDataset
-from groundingdino.models import build_model
-from groundingdino.util.slconfig import SLConfig
+from models.registry import MODULE_BUILD_FUNCS
+from util.slconfig import SLConfig
 from groundingdino.util.utils import clean_state_dict
-from groundingdino.util.vl_utils import create_positive_map_from_span
 
 
 def box_iou(box1, box2):
@@ -68,7 +69,13 @@ def compute_acc(pred_boxes, gt_boxes, iou_threshold=0.5):
 def load_model(config_path, checkpoint_path, device='cuda'):
     args = SLConfig.fromfile(config_path)
     args.device = device
-    model = build_model(args)
+    # Set necessary attributes for build
+    if not hasattr(args, 'datasets'):
+        args.datasets = 'config/datasets_refcoco.json'
+
+    build_func = MODULE_BUILD_FUNCS.get(args.modelname)
+    model, _, _ = build_func(args)
+
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     model.load_state_dict(clean_state_dict(checkpoint['model']), strict=False)
     model.to(device)
