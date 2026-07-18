@@ -2,28 +2,29 @@
 # Training script for RefCOCO / RefCOCO+ / RefCOCOg visual grounding baseline
 #
 # Usage:
-#   bash tools/train_refcoco.sh refcoco       # Train on RefCOCO
-#   bash tools/train_refcoco.sh refcocog      # Train on RefCOCOg
-#   bash tools/train_refcoco.sh refcoco+      # Train on RefCOCO+
+#   bash tools/train_refcoco.sh refcoco       # Train on RefCOCO (Swin-B)
+#   bash tools/train_refcoco.sh refcocog      # Train on RefCOCOg (Swin-B)
+#   bash tools/train_refcoco.sh refcoco+      # Train on RefCOCO+ (needs datasets_refcoco+.json)
 
 DATASET=${1:-refcoco}
 GPU_NUM=${GPU_NUM:-4}
 if [ $# -ge 2 ]; then GPU_NUM=$2; fi
 
-# Configuration paths (modify these for your setup)
-CONFIG="config/cfg_refcoco.py"
+# Paths
+CONFIG="config/cfg_refcoco_swinb.py"
 DATASETS="config/datasets_${DATASET}.json"
-OUTPUT_DIR="./output/${DATASET}_baseline"
-PRETRAIN_MODEL=""  # Set to pretrained checkpoint path if available
+OUTPUT_DIR="./output/${DATASET}_swinb_baseline"
+PRETRAIN_MODEL="/home/zcoop8/zhangxianping/groundingdino/pretrained/groundingdino_swinb_cogcoor.pth"
 
-# Create output directory
 mkdir -p ${OUTPUT_DIR}
 
 echo "================================================"
-echo "Training RefCOCO Baseline"
+echo "Training RefCOCO Baseline (Swin-B)"
 echo "Dataset: ${DATASET}"
-echo "GPUs: ${GPU_NUM}"
-echo "Output: ${OUTPUT_DIR}"
+echo "Config:  ${CONFIG}"
+echo "GPUs:    ${GPU_NUM}"
+echo "Output:  ${OUTPUT_DIR}"
+echo "Pretrain: ${PRETRAIN_MODEL}"
 echo "================================================"
 
 python -m torch.distributed.launch \
@@ -33,7 +34,6 @@ python -m torch.distributed.launch \
     --output_dir ${OUTPUT_DIR} \
     -c ${CONFIG} \
     --datasets ${DATASETS} \
-    --pretrain_model_path "${PRETRAIN_MODEL}" \
-    --options text_encoder_type="bert-base-uncased"
+    --pretrain_model_path "${PRETRAIN_MODEL}"
 
 echo "Training complete. Checkpoints saved to ${OUTPUT_DIR}"

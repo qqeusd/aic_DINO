@@ -2,7 +2,7 @@
   "train": [
     {
       "root": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/train2014",
-      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/refcoco/refcoco_train_odvg.jsonl",
+      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/refcoco+/refcoco+_train_odvg.jsonl",
       "dataset_mode": "odvg"
     }
   ],

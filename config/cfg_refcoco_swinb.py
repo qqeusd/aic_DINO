@@ -1,5 +1,5 @@
-# RefCOCO fine-tuning config for visual grounding
-# Based on cfg_odvg.py, adjusted for referring expression comprehension
+# RefCOCO fine-tuning config for visual grounding (Swin-B backbone)
+# Pretrained weight: groundingdino_swinb_cogcoor.pth
 
 data_aug_scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
 data_aug_max_size = 1333
@@ -7,9 +7,9 @@ data_aug_scales2_resize = [400, 500, 600]
 data_aug_scales2_crop = [384, 600]
 data_aug_scale_overlap = None
 
-batch_size = 4
+batch_size = 2                   # Swin-B larger, reduce batch size
 modelname = 'groundingdino'
-backbone = 'swin_T_224_1k'
+backbone = 'swin_B_384_22k'
 position_embedding = 'sine'
 pe_temperatureH = 20
 pe_temperatureW = 20
@@ -39,7 +39,7 @@ dn_label_noise_ratio = 0.5
 dn_label_coef = 1.0
 dn_bbox_coef = 1.0
 embed_init_tgt = True
-dn_labelbook_size = 91
+dn_labelbook_size = 2000
 max_text_len = 256
 text_encoder_type = "/home/zcoop8/zhangxianping/groundingdino/Open-GroundingDino/bert-base-uncased"
 use_text_enhancer = True
@@ -53,11 +53,11 @@ fusion_droppath = 0.1
 sub_sentence_present = True
 
 # RefCOCO specific
-max_labels = 20                                # fewer labels per image for referring expressions
-lr = 0.0001                                    # base learning rate
+max_labels = 20
+lr = 0.00005                                   # lower LR for Swin-B fine-tuning
 backbone_freeze_keywords = None
-freeze_keywords = None                         # don't freeze anything for fine-tuning
-lr_backbone = 1e-05
+freeze_keywords = None
+lr_backbone = 5e-06
 lr_backbone_names = ['backbone.0']
 lr_linear_proj_mult = 1e-05
 lr_linear_proj_names = ['ref_point_head', 'sampling_offsets']
@@ -65,7 +65,7 @@ weight_decay = 0.0001
 param_dict_type = 'ddetr_in_mmdet'
 ddetr_lr_param = False
 
-epochs = 10                                    # fewer epochs for fine-tuning
+epochs = 10
 lr_drop = 6
 save_checkpoint_interval = 1
 clip_max_norm = 0.1
@@ -125,9 +125,9 @@ use_ema = False
 ema_decay = 0.9997
 ema_epoch = 0
 use_detached_boxes_dec_out = False
-use_coco_eval = False                            # disable COCO eval for RefCOCO
+use_coco_eval = True
 dn_scalar = 100
 
-# TensorBoard logging
+# TensorBoard
 use_tensorboard = True
 log_dir = "./logs"

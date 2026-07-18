@@ -320,8 +320,16 @@ def main(args):
             wo_class_error=wo_class_error, args=args, logger=(logger if args.save_log else None),
             tb_logger=tb_logger, epoch=epoch
         )
-        map_regular = test_stats['coco_eval_bbox'][0]
-        _isbest = best_map_holder.update(map_regular, epoch, is_ema=False)
+
+        # Best model tracking: use COCO mAP if available, otherwise use val loss
+        if 'coco_eval_bbox' in test_stats:
+            map_regular = test_stats['coco_eval_bbox'][0]
+            _isbest = best_map_holder.update(map_regular, epoch, is_ema=False)
+        elif 'loss' in test_stats:
+            _isbest = best_map_holder.update(-test_stats['loss'], epoch, is_ema=False)
+        else:
+            _isbest = True  # no metric available, always save
+
         if _isbest:
             checkpoint_path = output_dir / 'checkpoint_best_regular.pth'
             utils.save_on_master({
