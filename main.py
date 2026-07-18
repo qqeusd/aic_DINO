@@ -22,6 +22,7 @@ from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch
 
 from groundingdino.util.utils import clean_state_dict
+from util.tb_logger import TBLogger
 
 
 def get_args_parser():
@@ -277,6 +278,13 @@ def main(args):
     start_time = time.time()
     best_map_holder = BestMetricHolder(use_ema=False)
 
+    # Initialize TensorBoard logger
+    tb_logger = None
+    if getattr(args, 'use_tensorboard', False) and utils.is_main_process():
+        tb_log_dir = getattr(args, 'log_dir', os.path.join(args.output_dir, 'tensorboard'))
+        tb_logger = TBLogger(log_dir=tb_log_dir)
+        print(f"TensorBoard logging to {tb_log_dir}")
+
     for epoch in range(args.start_epoch, args.epochs):
         epoch_start_time = time.time()
         if args.distributed:
@@ -284,7 +292,7 @@ def main(args):
 
         train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, device, epoch,
-            args.clip_max_norm, wo_class_error=wo_class_error, lr_scheduler=lr_scheduler, args=args, logger=(logger if args.save_log else None))
+            args.clip_max_norm, wo_class_error=wo_class_error, lr_scheduler=lr_scheduler, args=args, logger=(logger if args.save_log else None), tb_logger=tb_logger)
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
 
@@ -309,7 +317,8 @@ def main(args):
         # eval
         test_stats, coco_evaluator = evaluate(
             model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,
-            wo_class_error=wo_class_error, args=args, logger=(logger if args.save_log else None)
+            wo_class_error=wo_class_error, args=args, logger=(logger if args.save_log else None),
+            tb_logger=tb_logger, epoch=epoch
         )
         map_regular = test_stats['coco_eval_bbox'][0]
         _isbest = best_map_holder.update(map_regular, epoch, is_ema=False)
@@ -354,6 +363,9 @@ def main(args):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+
+    if tb_logger is not None:
+        tb_logger.close()
 
     # remove the copied files.
     copyfilelist = vars(args).get('copyfilelist')

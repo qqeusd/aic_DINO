@@ -1,0 +1,16 @@
+{
+  "train": [
+    {
+      "root": "PATH_TO_COCO_IMAGES/train2014",
+      "anno": "PATH_TO_REFCOCO/refcocog_train_odvg.jsonl",
+      "dataset_mode": "odvg"
+    }
+  ],
+  "val": [
+    {
+      "root": "PATH_TO_COCO_IMAGES/train2014",
+      "anno": "PATH_TO_REFCOCO/refcocog_val_odvg.jsonl",
+      "dataset_mode": "odvg"
+    }
+  ]
+}

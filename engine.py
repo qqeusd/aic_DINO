@@ -20,8 +20,8 @@ from datasets.panoptic_eval import PanopticEvaluator
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0, 
-                    wo_class_error=False, lr_scheduler=None, args=None, logger=None):
+                    device: torch.device, epoch: int, max_norm: float = 0,
+                    wo_class_error=False, lr_scheduler=None, args=None, logger=None, tb_logger=None):
     scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
 
 
@@ -97,6 +97,13 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 print("BREAK!"*5)
                 break
 
+        # TensorBoard logging (per step)
+        if tb_logger is not None and utils.is_main_process():
+            global_step = epoch * len(data_loader) + _cnt
+            tb_logger.log_scalar('train/loss_total', loss_value, global_step)
+            tb_logger.log_losses(loss_dict_reduced_scaled, global_step, prefix='train')
+            tb_logger.log_lr(optimizer.param_groups[0]["lr"], global_step)
+
     if getattr(criterion, 'loss_weight_decay', False):
         criterion.loss_weight_decay(epoch=epoch)
     if getattr(criterion, 'tuning_matching', False):
@@ -113,7 +120,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir, wo_class_error=False, args=None, logger=None):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir, wo_class_error=False, args=None, logger=None, tb_logger=None, epoch=0):
 
     model.eval()
     criterion.eval()
@@ -274,7 +281,14 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
 
-
+    # TensorBoard logging for evaluation
+    if tb_logger is not None and utils.is_main_process():
+        tb_logger.log_epoch_metrics(stats, epoch, prefix='val')
+        if 'coco_eval_bbox' in stats:
+            tb_logger.log_scalar('val/AP', stats['coco_eval_bbox'][0], epoch)
+            tb_logger.log_scalar('val/AP50', stats['coco_eval_bbox'][1], epoch)
+            tb_logger.log_scalar('val/AP75', stats['coco_eval_bbox'][2], epoch)
+        tb_logger.flush()
 
     return stats, coco_evaluator
 
