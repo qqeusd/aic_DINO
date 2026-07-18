@@ -202,7 +202,7 @@ def main(args):
         data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                     collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
-    val_batch_size = min(args.batch_size * 2, 4)  # smaller val batch to avoid OOM
+    val_batch_size = 1  # minimal val batch to avoid OOM with full-size images
     data_loader_val = DataLoader(dataset_val, val_batch_size, sampler=sampler_val,
                                  drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 

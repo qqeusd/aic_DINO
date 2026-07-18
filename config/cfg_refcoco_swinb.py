@@ -7,7 +7,7 @@ data_aug_scales2_resize = [400, 500, 600]
 data_aug_scales2_crop = [384, 600]
 data_aug_scale_overlap = None
 
-batch_size = 1                   # Swin-B + 1333px max needs ~20GB
+batch_size = 2                   # enough GPU memory on 32GB cards
 modelname = 'groundingdino'
 backbone = 'swin_B_384_22k'
 position_embedding = 'sine'
