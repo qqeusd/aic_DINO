@@ -238,6 +238,9 @@ def main(args):
             args.start_epoch = checkpoint['epoch'] + 1
 
     if (not args.resume) and args.pretrain_model_path:
+        logger.info("=" * 60)
+        logger.info("LOADING PRETRAINED WEIGHTS")
+        logger.info(f"  Path: {args.pretrain_model_path}")
         checkpoint = torch.load(args.pretrain_model_path, map_location='cpu')['model']
         from collections import OrderedDict
         _ignorekeywordlist = args.finetune_ignore if args.finetune_ignore else []
@@ -253,8 +256,60 @@ def main(args):
         logger.info("Ignore keys: {}".format(json.dumps(ignorelist, indent=2)))
         _tmp_st = OrderedDict({k:v for k, v in utils.clean_state_dict(checkpoint).items() if check_keep(k, _ignorekeywordlist)})
 
+        ckpt_keys = set(_tmp_st.keys())
+        model_keys = set(model_without_ddp.state_dict().keys())
+
+        matched_keys = ckpt_keys & model_keys
+        missing_in_ckpt = model_keys - ckpt_keys
+        unexpected_in_ckpt = ckpt_keys - model_keys
+
+        logger.info(f"  Checkpoint keys: {len(ckpt_keys)}")
+        logger.info(f"  Model keys:      {len(model_keys)}")
+        logger.info(f"  Matched (loaded): {len(matched_keys)}")
+        logger.info(f"  Missing (random init): {len(missing_in_ckpt)}")
+        logger.info(f"  Unexpected (unused):  {len(unexpected_in_ckpt)}")
+
+        # Summarize by component
+        components = ['backbone', 'bert', 'transformer', 'input_proj', 'bbox_embed', 'class_embed', 'feat_map']
+        for comp in components:
+            comp_matched = [k for k in matched_keys if comp in k]
+            comp_missing = [k for k in missing_in_ckpt if comp in k]
+            if comp_matched:
+                logger.info(f"  [{comp}] loaded: {len(comp_matched)}, missing: {len(comp_missing)}")
+            if len(comp_missing) > 0 and len(comp_missing) <= 5:
+                for k in comp_missing:
+                    logger.info(f"    MISS: {k}")
+
+        # WARNING if backbone/bert/transformer are mostly missing
+        for comp in ['backbone', 'bert', 'transformer']:
+            comp_ckpt = [k for k in ckpt_keys if comp in k]
+            comp_model = [k for k in model_keys if comp in k]
+            if len(comp_ckpt) == 0:
+                logger.info(f"  *** WARNING: No '{comp}' keys in checkpoint! ***")
+            if len(comp_model) == 0:
+                logger.info(f"  *** WARNING: No '{comp}' keys in model! ***")
+
+        # Spot-check: verify backbone patch_embed weight actually changed after loading
+        patch_key = 'backbone.0.patch_embed.proj.weight'
+        if patch_key in model_without_ddp.state_dict():
+            w_before = model_without_ddp.state_dict()[patch_key].clone()
+
         _load_output = model_without_ddp.load_state_dict(_tmp_st, strict=False)
+
+        if patch_key in model_without_ddp.state_dict():
+            w_after = model_without_ddp.state_dict()[patch_key]
+            w_from_ckpt = _tmp_st.get(patch_key)
+            if w_from_ckpt is not None:
+                match = torch.allclose(w_after.cpu(), w_from_ckpt, atol=1e-8)
+                changed = not torch.allclose(w_before, w_after.cpu(), atol=1e-8)
+                logger.info(f"  [VERIFY] {patch_key}: from_ckpt={match}, changed={changed}")
+                if match:
+                    logger.info(f"  >>> Pretrained backbone weights CONFIRMED loaded <<<")
+                else:
+                    logger.info(f"  *** WARNING: backbone weights do NOT match checkpoint! ***")
+
         logger.info(str(_load_output))
+        logger.info("=" * 60)
 
  
     

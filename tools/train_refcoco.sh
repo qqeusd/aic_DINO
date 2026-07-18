@@ -34,6 +34,8 @@ python -m torch.distributed.launch \
     --output_dir ${OUTPUT_DIR} \
     -c ${CONFIG} \
     --datasets ${DATASETS} \
-    --pretrain_model_path "${PRETRAIN_MODEL}"
+    --pretrain_model_path "${PRETRAIN_MODEL}" \
+    --amp \
+    --num_workers 4
 
 echo "Training complete. Checkpoints saved to ${OUTPUT_DIR}"

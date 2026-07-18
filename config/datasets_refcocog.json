@@ -9,7 +9,7 @@
   "val": [
     {
       "root": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/val2014",
-      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/annotations/instances_val2014.json",
+      "anno": "/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/annotations/instances_val2014_5k.json",
       "label_map": null,
       "dataset_mode": "coco"
     }
