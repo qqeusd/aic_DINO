@@ -7,7 +7,7 @@ data_aug_scales2_resize = [300, 400, 500]
 data_aug_scales2_crop = [300, 480]
 data_aug_scale_overlap = None
 
-batch_size = 1                   # minimal batch size for 10GB GPU memory
+batch_size = 1                   # tight memory budget
 modelname = 'groundingdino'
 backbone = 'swin_B_384_22k'
 position_embedding = 'sine'
@@ -22,10 +22,10 @@ dim_feedforward = 2048
 hidden_dim = 256
 dropout = 0.0
 nheads = 8
-num_queries = 300
+num_queries = 900
 query_dim = 4
 num_patterns = 0
-num_feature_levels = 3
+num_feature_levels = 4
 enc_n_points = 4
 dec_n_points = 4
 
