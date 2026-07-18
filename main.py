@@ -301,14 +301,15 @@ def main(args):
             test_key = list(state_dict.keys())[0]  # fallback: first key
         logger.info(f"  [VERIFY] spot-check key: {test_key}")
 
-        w_before = state_dict[test_key].clone()
+        w_before = state_dict[test_key].cpu().clone()
         _load_output = model_without_ddp.load_state_dict(_tmp_st, strict=False)
 
-        w_after = state_dict[test_key]
+        w_after = state_dict[test_key].cpu()
         w_from_ckpt = _tmp_st.get(test_key)
         if w_from_ckpt is not None:
-            match = torch.allclose(w_after.cpu(), w_from_ckpt, atol=1e-8)
-            changed = not torch.allclose(w_before, w_after.cpu(), atol=1e-8)
+            w_from_ckpt = w_from_ckpt.cpu()
+            match = torch.allclose(w_after, w_from_ckpt, atol=1e-8)
+            changed = not torch.allclose(w_before, w_after, atol=1e-8)
             logger.info(f"  [VERIFY] {test_key}: from_ckpt={match}, changed={changed}")
             logger.info(f"  >>> Pretrained weights CONFIRMED loaded <<<")
         else:
