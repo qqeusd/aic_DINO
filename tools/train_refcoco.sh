@@ -28,8 +28,17 @@ fi
 
 # Paths
 CONFIG="config/cfg_refcoco_swinb.py"
-DATASETS="config/datasets_${DATASET}.json"
-OUTPUT_DIR="./output/${DATASET}_swinb_baseline"
+# Use heavy config if available
+if [ "$DATASET" = "refcocog_heavy" ]; then
+    DATASETS="config/datasets_refcocog_heavy.json"
+    OUTPUT_DIR="./output/refcocog_heavy_swinb"
+elif [ "$DATASET" = "all" ]; then
+    DATASETS="config/datasets_refcoco_all.json"
+    OUTPUT_DIR="./output/refcoco_all_swinb_baseline"
+else
+    DATASETS="config/datasets_${DATASET}.json"
+    OUTPUT_DIR="./output/${DATASET}_swinb_baseline"
+fi
 PRETRAIN_MODEL="/home/zcoop8/zhangxianping/groundingdino/pretrained/groundingdino_swinb_cogcoor.pth"
 
 # Clean old checkpoints and logs for fresh start

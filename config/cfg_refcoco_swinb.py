@@ -65,8 +65,8 @@ weight_decay = 0.0001
 param_dict_type = 'ddetr_in_mmdet'
 ddetr_lr_param = False
 
-epochs = 10
-lr_drop = 6
+epochs = 12
+lr_drop = 8
 save_checkpoint_interval = 1
 clip_max_norm = 0.1
 onecyclelr = False
