@@ -69,9 +69,8 @@ def compute_acc(pred_boxes, gt_boxes, iou_threshold=0.5):
 def load_model(config_path, checkpoint_path, device='cuda'):
     args = SLConfig.fromfile(config_path)
     args.device = device
-    # Set necessary attributes for build
-    if not hasattr(args, 'datasets'):
-        args.datasets = 'config/datasets_refcoco.json'
+    # Set necessary attributes for build (required by PostProcess)
+    args.coco_val_path = '/home/zlab8v100/ssd4/bigdata4/aic2026/coco2014/annotations/instances_val2014_5k.json'
 
     build_func = MODULE_BUILD_FUNCS.get(args.modelname)
     model, _, _ = build_func(args)
